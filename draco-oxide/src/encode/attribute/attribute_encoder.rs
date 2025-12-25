@@ -324,9 +324,7 @@ where
                 port_att,
                 port_info_buffer,
             ),
-            _ => Err(Err::UnsupportedNumComponents(
-                port_att.get_num_components()
-            )),
+            _ => Err(Err::UnsupportedNumComponents(port_att.get_num_components())),
         }
     }
 

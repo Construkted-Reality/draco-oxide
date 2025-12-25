@@ -175,17 +175,12 @@ where
 
             // Calculate vectors
             let pn = prev_pos - next_pos; // prev_pos - next_pos
-            let pn =
-                NdVector::<3, i64>::from([*pn.get(0), *pn.get(1), *pn.get(2)]);
+            let pn = NdVector::<3, i64>::from([*pn.get(0), *pn.get(1), *pn.get(2)]);
             let pn_norm2_squared = pn.dot(pn) as u64;
 
             if pn_norm2_squared != 0 {
                 let cn = curr_pos - next_pos; // curr_pos - next_pos
-                let cn = NdVector::<3, i64>::from([
-                    *cn.get(0),
-                    *cn.get(1),
-                    *cn.get(2),
-                ]);
+                let cn = NdVector::<3, i64>::from([*cn.get(0), *cn.get(1), *cn.get(2)]);
                 let cn_dot_pn = pn.dot(cn);
 
                 let pn_uv = prev_uv - next_uv;

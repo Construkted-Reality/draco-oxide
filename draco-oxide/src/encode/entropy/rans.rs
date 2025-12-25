@@ -175,7 +175,6 @@ where
         let rans_precision = 1 << RANS_PRECISION;
         let mut total_rans_prob = 0;
         for freq in freq_counts.iter().take(num_symbols).copied() {
-
             let prob = freq as f64 / total_freq;
 
             let mut new_freq = (prob * rans_precision as f64 + 0.5) as usize;

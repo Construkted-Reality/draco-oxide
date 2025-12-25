@@ -264,6 +264,11 @@ impl GltfTranscoder {
             draco_extension::update_buffer_view_offset(&mut json, *old_idx, *new_offset);
         }
 
+        // Clear geometry bufferViews (they're no longer used, data is in Draco extension)
+        for geometry_view_idx in &geometry_views {
+            draco_extension::clear_buffer_view(&mut json, *geometry_view_idx);
+        }
+
         // Add new bufferViews for Draco data and add extensions to primitives
         for compressed in &compressed_data {
             let new_bv_idx = draco_extension::add_buffer_view(

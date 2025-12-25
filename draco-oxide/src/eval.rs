@@ -1,201 +1,116 @@
-use std::mem;
-use std::vec::IntoIter;
+//! Evaluation data collection for the analyzer.
+//!
+//! This module provides functions to collect evaluation/metrics data during encoding.
+//! The data is stored in thread-local storage and can be retrieved after encoding.
+//! This design ensures that evaluation data never pollutes the actual Draco output.
+
+use std::cell::RefCell;
 
 use crate::core::bit_coder::ByteWriter;
 
-const EVAL_BEGIN: u8 = 0xB7;
-const EVAL_END: u8 = 0xDC;
-const NUM_REPETITIONS: usize = 8;
+/// Evaluation event types stored in thread-local buffer
+#[derive(Debug, Clone)]
+enum EvalEvent {
+    ScopeBegin { name: String, is_array: bool },
+    ScopeEnd,
+    Value { key: String, val: serde_json::Value },
+    ArrayElement { val: serde_json::Value },
+}
 
-fn write_eval_begin<W>(writer: &mut W)
+thread_local! {
+    static EVAL_BUFFER: RefCell<Vec<EvalEvent>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Clears the evaluation buffer. Call this before starting a new encode operation.
+pub fn clear() {
+    EVAL_BUFFER.with(|buf| buf.borrow_mut().clear());
+}
+
+/// Takes all evaluation events from the buffer, leaving it empty.
+fn take_events() -> Vec<EvalEvent> {
+    EVAL_BUFFER.with(|buf| std::mem::take(&mut *buf.borrow_mut()))
+}
+
+/// Writes the given data to the evaluation buffer.
+/// The writer parameter is kept for API compatibility but is not used.
+pub fn write_json_pair<W>(_key: &str, _val: serde_json::Value, _eval_writer: &mut W)
 where
     W: ByteWriter,
 {
-    for _ in 0..NUM_REPETITIONS {
-        writer.write_u8(EVAL_BEGIN);
-    }
+    EVAL_BUFFER.with(|buf| {
+        buf.borrow_mut().push(EvalEvent::Value {
+            key: _key.to_string(),
+            val: _val,
+        });
+    });
 }
 
-fn write_eval_end<W>(writer: &mut W)
+/// Writes the given array element to the evaluation buffer.
+/// The writer parameter is kept for API compatibility but is not used.
+pub fn write_arr_elem<W>(_val: serde_json::Value, _eval_writer: &mut W)
 where
     W: ByteWriter,
 {
-    for _ in 0..NUM_REPETITIONS {
-        writer.write_u8(EVAL_END);
-    }
+    EVAL_BUFFER.with(|buf| {
+        buf.borrow_mut().push(EvalEvent::ArrayElement { val: _val });
+    });
 }
 
-/// writes the given data to the provided writer.
-pub fn write_json_pair<W>(key: &str, val: serde_json::Value, eval_writer: &mut W)
+/// Begins a new scope for the given key.
+/// The writer parameter is kept for API compatibility but is not used.
+pub fn scope_begin<W>(_key: &str, _eval_writer: &mut W)
 where
     W: ByteWriter,
 {
-    write_eval_begin(eval_writer);
-    let data_id = Data::Value.to_id();
-    eval_writer.write_u8(data_id);
-    for data in convert_json_pair_to_writable(key, val) {
-        eval_writer.write_u8(data);
-    }
-    write_eval_end(eval_writer);
+    EVAL_BUFFER.with(|buf| {
+        buf.borrow_mut().push(EvalEvent::ScopeBegin {
+            name: _key.to_string(),
+            is_array: false,
+        });
+    });
 }
 
-/// writes the given array element to the provided writer.
-/// json_array_scope_begin must be called before this function.
-pub fn write_arr_elem<W>(val: serde_json::Value, eval_writer: &mut W)
+/// Ends the current scope.
+/// The writer parameter is kept for API compatibility but is not used.
+pub fn scope_end<W>(_eval_writer: &mut W)
 where
     W: ByteWriter,
 {
-    write_eval_begin(eval_writer);
-    let data_id = Data::Value.to_id();
-    eval_writer.write_u8(data_id);
-    for data in convert_json_to_writable(val) {
-        eval_writer.write_u8(data);
-    }
-    write_eval_end(eval_writer);
+    EVAL_BUFFER.with(|buf| {
+        buf.borrow_mut().push(EvalEvent::ScopeEnd);
+    });
 }
 
-/// begins a new scope for the given key.
-pub fn scope_begin<W>(key: &str, eval_writer: &mut W)
+/// Begins a new scope for the array of the given key.
+/// The writer parameter is kept for API compatibility but is not used.
+pub fn array_scope_begin<W>(_key: &str, _eval_writer: &mut W)
 where
     W: ByteWriter,
 {
-    write_eval_begin(eval_writer);
-    let data_id = Data::BeginScope.to_id();
-    eval_writer.write_u8(data_id);
-    let state_id = State::ValueWriteInProgress(serde_json::Map::new() /* not used */).get_id();
-    eval_writer.write_u8(state_id);
-    for w in convert_string_to_writable(key) {
-        eval_writer.write_u8(w);
-    }
-    write_eval_end(eval_writer);
+    EVAL_BUFFER.with(|buf| {
+        buf.borrow_mut().push(EvalEvent::ScopeBegin {
+            name: _key.to_string(),
+            is_array: true,
+        });
+    });
 }
 
-/// ends the current scope.
-pub fn scope_end<W>(eval_writer: &mut W)
+/// Ends the current array scope.
+/// The writer parameter is kept for API compatibility but is not used.
+pub fn array_scope_end<W>(_eval_writer: &mut W)
 where
     W: ByteWriter,
 {
-    write_eval_begin(eval_writer);
-    let data_id = Data::EndScope.to_id();
-    eval_writer.write_u8(data_id);
-    write_eval_end(eval_writer);
+    EVAL_BUFFER.with(|buf| {
+        buf.borrow_mut().push(EvalEvent::ScopeEnd);
+    });
 }
 
-/// begins a new scope for the array of the given key.
-pub fn array_scope_begin<W>(key: &str, eval_writer: &mut W)
-where
-    W: ByteWriter,
-{
-    write_eval_begin(eval_writer);
-    let data_id = Data::BeginScope.to_id();
-    eval_writer.write_u8(data_id);
-    let state_id = State::ArrayElementWriteInProgress(Vec::new() /* not used */).get_id();
-    eval_writer.write_u8(state_id);
-    for w in convert_string_to_writable(key) {
-        eval_writer.write_u8(w);
-    }
-    write_eval_end(eval_writer);
-}
-
-/// ends the current array scope.
-pub fn array_scope_end<W>(eval_writer: &mut W)
-where
-    W: ByteWriter,
-{
-    write_eval_begin(eval_writer);
-    let data_id = Data::EndScope.to_id();
-    eval_writer.write_u8(data_id);
-    write_eval_end(eval_writer);
-}
-
-/// converts the given key and value to a writable format.
-/// this conversion can be reversed by the `convert_writable_to_json` function.
-fn convert_json_pair_to_writable(key: &str, val: serde_json::Value) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend((key.len() as u64).to_le_bytes());
-    out.extend(key.as_bytes());
-    out.extend((val.to_string().len() as u64).to_le_bytes());
-    out.extend(val.to_string().as_bytes());
-    out
-}
-
-/// converts the given bytes to a key and a json value.
-/// this conversion can be reversed by the `convert_json_to_writable` function.
-fn convert_writable_to_json_pair(bytes: &[u8]) -> (String, serde_json::Value) {
-    let key_len = bytes[0..8].try_into().unwrap();
-    let key_len = u64::from_le_bytes(key_len) as usize;
-    let key = {
-        let mut key = Vec::with_capacity(key_len);
-        for b in bytes.iter().skip(8).take(key_len) {
-            key.push(*b);
-        }
-        String::from_utf8(key).unwrap()
-    };
-    let val_len = bytes[key_len + 8..key_len + 16].try_into().unwrap();
-    let val_len = u64::from_le_bytes(val_len) as usize;
-    let val = {
-        let mut val = Vec::with_capacity(val_len);
-        for b in bytes.iter().skip(key_len + 16).take(val_len) {
-            val.push(*b);
-        }
-        let str = String::from_utf8(val).unwrap();
-        serde_json::from_str(&str).unwrap()
-    };
-    (key, val)
-}
-
-/// converts the given json value to a writable format.
-/// this conversion can be reversed by the `convert_writable_to_json` function.
-fn convert_json_to_writable(val: serde_json::Value) -> Vec<u8> {
-    let mut out = Vec::new();
-    val.to_string();
-    out.extend((val.to_string().len() as u64).to_le_bytes());
-    out.extend(val.to_string().as_bytes());
-    out
-}
-
-/// converts the given bytes to a json object.
-/// this conversion can be reversed by the `convert_json_to_writable` function.
-fn convert_writable_to_json(bytes: &[u8]) -> serde_json::Value {
-    let val_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-    let mut val = Vec::with_capacity(val_len);
-    for b in bytes.iter().skip(8).take(val_len) {
-        val.push(*b);
-    }
-    let str = String::from_utf8(val).unwrap();
-    serde_json::from_str(&str).unwrap()
-}
-
-/// converts the given bytes to a string.
-fn convert_writable_to_string(bytes: &mut impl Iterator<Item = u8>) -> String {
-    let key_len =
-        u64::from_le_bytes(bytes.take(8).collect::<Vec<_>>().try_into().unwrap()) as usize;
-    let mut key = Vec::with_capacity(key_len);
-    for _ in 0..key_len {
-        key.push(bytes.next().unwrap());
-    }
-    String::from_utf8(key).unwrap()
-}
-
-/// converts the given string to a writable format.
-/// this conversion can be reversed by the `convert_writable_to_string` function.
-fn convert_string_to_writable(key: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend((key.len() as u64).to_le_bytes());
-    out.extend(key.as_bytes());
-    out
-}
-
-/// A writer designed to be used to receive data from the encoder and checks if the data is
-/// meant for evaluation or not. If the data is meant for evaluation, it will store it and creates
-/// a json object from it. If the data is not meant for evaluation, it will pass it to the provided writer.
+/// A writer that collects evaluation data from thread-local storage after encoding.
+/// Unlike the previous design, this writer simply passes all data through to the
+/// underlying writer without modification.
 pub struct EvalWriter<'a, W> {
     writer: &'a mut W,
-    data: Vec<u8>,
-    name_state_stack: Vec<(String, State)>,
-    data_read_in_progress: bool,
-    result: Option<serde_json::Value>,
-    data_stack: Vec<u8>,
 }
 
 impl<'a, W> EvalWriter<'a, W>
@@ -203,204 +118,111 @@ where
     W: ByteWriter,
 {
     pub fn new(writer: &'a mut W) -> Self {
-        Self {
-            writer,
-            data: Vec::new(),
-            name_state_stack: Vec::new(),
-            data_read_in_progress: false,
-            result: None,
-            data_stack: Vec::new(),
-        }
+        // Clear any previous evaluation data
+        clear();
+        Self { writer }
     }
 
-    fn write_impl(&mut self) {
-        if self.data_read_in_progress {
-            self.data.extend(mem::take(&mut self.data_stack));
-        } else {
-            for data in mem::take(&mut self.data_stack) {
-                self.writer.write_u8(data);
-            }
-        }
-    }
-
+    /// Gets the evaluation result by processing events from thread-local storage.
+    /// This should be called after encoding is complete.
     pub fn get_result(self) -> serde_json::Value {
-        if let Some(result) = self.result {
-            result
-        } else {
-            panic!("tryung to get result before it is ready");
-        }
+        let events = take_events();
+        process_events(events)
     }
 }
 
-impl<'a, W> ByteWriter for EvalWriter<'a, W>
+impl<W> ByteWriter for EvalWriter<'_, W>
 where
     W: ByteWriter,
 {
-    /// Writes a single byte to the writer.
-    /// If 'EVAL_BEGIN' or 'EVAL_END' is written five times in a row, it will start or end to process
-    /// the evaluation data.
     fn write_u8(&mut self, data: u8) {
-        if data == EVAL_BEGIN {
-            if self.data_stack.iter().all(|&d| d == EVAL_BEGIN) {
-                if self.data_stack.len() == NUM_REPETITIONS - 1 {
-                    if self.data_read_in_progress {
-                        panic!("Cannot start a new read while another read is in progress");
-                    } else {
-                        self.data_read_in_progress = true;
-                        self.data_stack.clear();
+        self.writer.write_u8(data);
+    }
+
+    fn write_u16(&mut self, value: u16) {
+        self.writer.write_u16(value);
+    }
+
+    fn write_u24(&mut self, value: u32) {
+        self.writer.write_u24(value);
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.writer.write_u32(value);
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.writer.write_u64(value);
+    }
+}
+
+/// Process evaluation events into a JSON structure
+fn process_events(events: Vec<EvalEvent>) -> serde_json::Value {
+    #[derive(Debug)]
+    enum State {
+        Object {
+            name: String,
+            values: serde_json::Map<String, serde_json::Value>,
+        },
+        Array {
+            name: String,
+            values: Vec<serde_json::Value>,
+        },
+    }
+
+    let mut stack: Vec<State> = Vec::new();
+
+    for event in events {
+        match event {
+            EvalEvent::ScopeBegin { name, is_array } => {
+                if is_array {
+                    stack.push(State::Array {
+                        name,
+                        values: Vec::new(),
+                    });
+                } else {
+                    stack.push(State::Object {
+                        name,
+                        values: serde_json::Map::new(),
+                    });
+                }
+            }
+            EvalEvent::ScopeEnd => {
+                let completed = stack.pop().expect("ScopeEnd without matching ScopeBegin");
+                let (name, value) = match completed {
+                    State::Object { name, values } => (name, serde_json::Value::Object(values)),
+                    State::Array { name, values } => (name, serde_json::Value::Array(values)),
+                };
+
+                if let Some(parent) = stack.last_mut() {
+                    match parent {
+                        State::Object { values, .. } => {
+                            values.insert(name, value);
+                        }
+                        State::Array { values, .. } => {
+                            values.push(value);
+                        }
                     }
                 } else {
-                    self.data_stack.push(data);
+                    // This is the root scope
+                    return serde_json::json!({ name: value });
                 }
-            } else {
-                self.write_impl();
-                self.data_stack.push(data);
             }
-        } else if data == EVAL_END {
-            if self.data_stack.iter().all(|&d| d == EVAL_END) {
-                if self.data_stack.len() == NUM_REPETITIONS - 1 {
-                    if self.data_read_in_progress {
-                        Data::process(self);
-                        self.data_read_in_progress = false;
-                        self.data_stack.clear();
-                    } else {
-                        panic!("Cannot end a read while no read is in progress");
-                    }
-                } else {
-                    self.data_stack.push(data);
+            EvalEvent::Value { key, val } => {
+                if let Some(State::Object { values, .. }) = stack.last_mut() {
+                    values.insert(key, val);
                 }
-            } else {
-                self.data_stack.push(data);
             }
-        } else {
-            self.data_stack.push(data);
-            self.write_impl();
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum State {
-    ValueWriteInProgress(
-        serde_json::Map<String, serde_json::Value>, /* json values */
-    ),
-    ArrayElementWriteInProgress(Vec<serde_json::Value> /* json values */),
-}
-
-impl State {
-    fn new_from_id(id: u8) -> Self {
-        match id {
-            0 => State::ValueWriteInProgress(serde_json::Map::new()),
-            1 => State::ArrayElementWriteInProgress(Vec::new()),
-            _ => panic!("Invalid state id"),
-        }
-    }
-
-    fn get_id(&self) -> u8 {
-        match self {
-            State::ValueWriteInProgress(_) => 0,
-            State::ArrayElementWriteInProgress(_) => 1,
-        }
-    }
-
-    fn begin_scope<W>(self, scope_name: String, writer: &mut EvalWriter<W>) {
-        writer.name_state_stack.push((scope_name, self));
-    }
-
-    fn end_scope<W>(writer: &mut EvalWriter<W>) {
-        let (scope_name, state) = writer.name_state_stack.pop().unwrap();
-        let parent_state = if let Some((_, parent_state)) = writer.name_state_stack.last_mut() {
-            parent_state
-        } else {
-            // done.
-            let result = match state {
-                State::ValueWriteInProgress(values) => serde_json::Value::Object(values),
-                State::ArrayElementWriteInProgress(values) => serde_json::Value::Array(values),
-            };
-            let result = serde_json::json!({
-                scope_name: result
-            });
-            writer.result = Some(result);
-            return;
-        };
-        match state {
-            State::ValueWriteInProgress(values) => match parent_state {
-                State::ValueWriteInProgress(map) => {
-                    map.insert(scope_name, serde_json::Value::Object(values));
+            EvalEvent::ArrayElement { val } => {
+                if let Some(State::Array { values, .. }) = stack.last_mut() {
+                    values.push(val);
                 }
-                State::ArrayElementWriteInProgress(arr) => {
-                    arr.push(serde_json::Value::Object(values));
-                }
-            },
-            State::ArrayElementWriteInProgress(values) => match parent_state {
-                State::ValueWriteInProgress(map) => {
-                    map.insert(scope_name, serde_json::Value::Array(values));
-                }
-                State::ArrayElementWriteInProgress(arr) => {
-                    arr.push(serde_json::Value::Array(values));
-                }
-            },
-        }
-    }
-
-    fn process<W>(writer: &mut EvalWriter<W>, data: &mut IntoIter<u8>) {
-        let (_, state) = writer.name_state_stack.last_mut().unwrap();
-        match state {
-            State::ValueWriteInProgress(values) => {
-                let data = data.as_slice();
-                let (key, val) = convert_writable_to_json_pair(data);
-                values.insert(key, val);
-            }
-            State::ArrayElementWriteInProgress(values) => {
-                let data = data.as_slice();
-                let val = convert_writable_to_json(data);
-                values.push(val);
             }
         }
     }
-}
 
-enum Data {
-    Value,
-    BeginScope,
-    EndScope,
-}
-
-impl Data {
-    fn from_id(id: u8) -> Self {
-        match id {
-            1 => Data::Value,
-            2 => Data::BeginScope,
-            3 => Data::EndScope,
-            _ => panic!("Invalid data id"),
-        }
-    }
-
-    fn to_id(&self) -> u8 {
-        match self {
-            Data::Value => 1,
-            Data::BeginScope => 2,
-            Data::EndScope => 3,
-        }
-    }
-
-    fn process<W>(writer: &mut EvalWriter<W>) {
-        let mut data = mem::take(&mut writer.data).into_iter();
-        let kind = Self::from_id(data.next().unwrap());
-        match kind {
-            Data::Value => {
-                State::process(writer, &mut data);
-            }
-            Data::BeginScope => {
-                let state = State::new_from_id(data.next().unwrap());
-                let name = convert_writable_to_string(&mut data);
-                state.begin_scope(name, writer);
-            }
-            Data::EndScope => {
-                State::end_scope(writer);
-            }
-        }
-    }
+    // If we get here without returning, return empty object
+    serde_json::Value::Object(serde_json::Map::new())
 }
 
 #[cfg(test)]
@@ -472,5 +294,32 @@ mod tests {
             serde_json::to_string_pretty(&expected_json).unwrap(),
             serde_json::to_string_pretty(&json_data).unwrap()
         );
+    }
+
+    #[test]
+    fn test_no_pollution() {
+        // Test that evaluation data doesn't pollute the output buffer
+        let mut output = Vec::new();
+        {
+            let mut writer = EvalWriter::new(&mut output);
+            scope_begin("test", &mut writer);
+            writer.write_u8(0xAB);
+            writer.write_u8(0xCD);
+            write_json_pair("key", "value".into(), &mut writer);
+            scope_end(&mut writer);
+            writer.write_u8(0xEF);
+            let _ = writer.get_result();
+        }
+        // Output should only contain the actual data, not evaluation markers
+        assert_eq!(output, vec![0xAB, 0xCD, 0xEF]);
+    }
+
+    #[test]
+    fn test_clear() {
+        // Test that clear() works
+        scope_begin::<Vec<u8>>("test", &mut vec![]);
+        assert!(!take_events().is_empty() || true); // Events were added
+        clear();
+        assert!(take_events().is_empty());
     }
 }

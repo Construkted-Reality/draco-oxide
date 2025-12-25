@@ -34,9 +34,10 @@ fn decode_with_cpp_draco(drc_path: &Path, obj_output_path: &Path) -> io::Result<
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::other(
-            format!("draco_decoder failed: {}", stderr),
-        ));
+        return Err(io::Error::other(format!(
+            "draco_decoder failed: {}",
+            stderr
+        )));
     }
 
     Ok(())

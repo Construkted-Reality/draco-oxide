@@ -171,6 +171,22 @@ pub fn update_buffer_view_offset(json: &mut Value, buffer_view_idx: usize, new_o
     }
 }
 
+/// Clear a geometry bufferView by setting byteOffset=0 and byteLength=0.
+/// This makes it safe to have stale bufferViews that are no longer referenced.
+pub fn clear_buffer_view(json: &mut Value, buffer_view_idx: usize) {
+    if let Some(bv) = json
+        .get_mut("bufferViews")
+        .and_then(|b| b.get_mut(buffer_view_idx))
+        .and_then(|b| b.as_object_mut())
+    {
+        bv.insert("byteOffset".to_string(), json!(0));
+        bv.insert("byteLength".to_string(), json!(0));
+        // Remove target as it's no longer valid
+        bv.remove("target");
+        bv.remove("byteStride");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
