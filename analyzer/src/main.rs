@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 use draco_oxide::eval;
-use draco_oxide::io::gltf::transcoder::{DracoTranscoder, DracoTranscodingOptions, FileOptions};
+use draco_oxide::io::gltf::GltfTranscoder;
 use draco_oxide::prelude::*;
 
 use chrono::Local;
@@ -82,7 +82,7 @@ fn main() {
     }
 }
 
-/// Process GLB/glTF file by transcoding it with Draco compression using DracoTranscoder
+/// Process GLB/glTF file by transcoding it with Draco compression using GltfTranscoder
 pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
     let mesh_name = original.file_stem().unwrap_or_default().to_string_lossy();
     let timestamp = Local::now().format("%Y%m%d-%H%M%S");
@@ -102,19 +102,9 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
     // Create output paths - use "output.glb" to match HTML template expectations
     let compressed_output_path = out_dir.join("output.glb");
 
-    // Use DracoTranscoder to compress the GLTF/GLB file
-    let transcoding_options = DracoTranscodingOptions::default();
-    let mut transcoder = DracoTranscoder::create(Some(transcoding_options)).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to create transcoder: {}", e),
-        )
-    })?;
-
-    let file_options = FileOptions::new(
-        original.to_string_lossy().to_string(),
-        compressed_output_path.to_string_lossy().to_string(),
-    );
+    // Use GltfTranscoder to compress the GLTF/GLB file
+    let input = std::fs::read(original)?;
+    let transcoder = GltfTranscoder::default();
 
     // Perform transcoding with Draco compression
     println!(
@@ -122,9 +112,12 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
         original.display(),
         compressed_output_path.display()
     );
-    match transcoder.transcode_file(&file_options) {
-        Ok(()) => {
+    match transcoder.transcode_to_file(&input, &compressed_output_path) {
+        Ok(warnings) => {
             println!("Successfully transcoded with Draco compression");
+            for warning in warnings {
+                eprintln!("Warning: {}", warning);
+            }
         }
         Err(e) => {
             eprintln!("Warning: Transcoding failed ({}), using fallback copy", e);
@@ -142,7 +135,7 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
         "file_info": {
             "input_file": original.file_name().unwrap_or_default().to_string_lossy(),
             "file_type": "gltf/glb",
-            "processing_method": "DracoTranscoder with Draco compression"
+            "processing_method": "GltfTranscoder with Draco compression"
         },
         "compression_info": {
             "status": "Successfully compressed with Draco",
@@ -177,7 +170,7 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
     let out_file = out_dir.join("index.html");
     write(out_file, html_content)?;
 
-    println!("GLB/glTF processing completed (DracoTranscoder integration ready):");
+    println!("GLB/glTF processing completed:");
     println!("  Input file: {}", input_file_path.display());
     println!("  Output file: {}", compressed_output_path.display());
     println!("  Evaluation data: {}", eval_json_path.display());

@@ -1,15 +1,10 @@
 pub mod builder;
-pub mod meh_features;
-pub mod metadata;
 
 use super::{
     attribute::{Attribute, AttributeType, ComponentDataType},
     shared::{Float, Vector},
 };
-use crate::core::{
-    material::MaterialLibrary,
-    shared::{NdVector, PointIdx},
-};
+use crate::core::shared::{NdVector, PointIdx};
 use crate::utils::geom::point_to_face_distance_3d;
 
 /// Represents a 3D mesh.
@@ -22,9 +17,6 @@ pub struct Mesh {
 
     // varible for glTF transcoder support
     name: String,
-
-    // Materials applied to to this mesh.
-    material_library: MaterialLibrary,
 }
 
 impl Mesh {
@@ -69,17 +61,7 @@ impl Mesh {
             attributes: Vec::new(),
 
             name: String::new(),
-            material_library: MaterialLibrary::new(),
         }
-    }
-
-    #[allow(unused)]
-    pub(crate) fn get_material_library(&self) -> &MaterialLibrary {
-        &self.material_library
-    }
-
-    pub(crate) fn get_material_library_mut(&mut self) -> &mut MaterialLibrary {
-        &mut self.material_library
     }
 
     pub fn diff_l2_norm(&self, other: &Self) -> f64 {
