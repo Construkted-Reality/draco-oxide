@@ -91,20 +91,20 @@ fn transcode_gltf(input_path: &str, output_path: &str) -> Result<()> {
         anyhow::bail!("Output file must be a .gltf or .glb file for transcode mode");
     }
 
-    // Create transcoder with default options
-    let mut transcoder = draco_oxide::io::gltf::transcoder::DracoTranscoder::create(None)
-        .map_err(|e| anyhow::anyhow!("Failed to create transcoder: {:?}", e))?;
+    // Read input file
+    let input = std::fs::read(input_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read input file: {}", e))?;
 
-    // Set up file options
-    let file_options = draco_oxide::io::gltf::transcoder::FileOptions::new(
-        input_path.to_string(),
-        output_path.to_string(),
-    );
+    // Create transcoder and transcode
+    let transcoder = draco_oxide::io::gltf::GltfTranscoder::default();
+    let warnings = transcoder
+        .transcode_to_file(&input, Path::new(output_path))
+        .map_err(|e| anyhow::anyhow!("Failed to transcode: {}", e))?;
 
-    // Perform transcoding
-    transcoder
-        .transcode_file(&file_options)
-        .map_err(|e| anyhow::anyhow!("Failed to transcode: {:?}", e))?;
+    // Print any warnings
+    for warning in warnings {
+        eprintln!("Warning: {}", warning);
+    }
 
     Ok(())
 }
