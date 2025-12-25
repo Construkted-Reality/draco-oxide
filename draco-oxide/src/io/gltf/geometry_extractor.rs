@@ -13,7 +13,11 @@ pub enum Error {
     #[error("Buffer index {0} out of range")]
     BufferOutOfRange(u64),
     #[error("Buffer read out of bounds: offset {offset}, size {size}, buffer len {buffer_len}")]
-    OutOfBounds { offset: usize, size: usize, buffer_len: usize },
+    OutOfBounds {
+        offset: usize,
+        size: usize,
+        buffer_len: usize,
+    },
     #[error("Unsupported component type: {0}")]
     UnsupportedComponentType(u32),
     #[error("Unsupported accessor type: {0}")]
@@ -72,43 +76,71 @@ pub struct BufferViewInfo {
 }
 
 pub fn get_accessor_info(json: &Value, accessor_idx: u64) -> Result<AccessorInfo, Error> {
-    let accessor = json.get("accessors")
+    let accessor = json
+        .get("accessors")
         .and_then(|a| a.get(accessor_idx as usize))
         .ok_or(Error::AccessorNotFound(accessor_idx))?;
 
-    let buffer_view_idx = accessor.get("bufferView")
+    let buffer_view_idx = accessor
+        .get("bufferView")
         .and_then(|v| v.as_u64())
         .ok_or(Error::NoBufferView(accessor_idx))?;
 
-    let byte_offset = accessor.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let component_type_raw = accessor.get("componentType")
+    let byte_offset = accessor
+        .get("byteOffset")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| Error::MissingField("accessor.componentType".into()))? as u32;
+        .unwrap_or(0) as usize;
+    let component_type_raw = accessor
+        .get("componentType")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| Error::MissingField("accessor.componentType".into()))?
+        as u32;
     let component_type = ComponentType::from_u32(component_type_raw)?;
-    let count = accessor.get("count")
+    let count = accessor
+        .get("count")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| Error::MissingField("accessor.count".into()))? as usize;
-    let accessor_type = accessor.get("type")
+    let accessor_type = accessor
+        .get("type")
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::MissingField("accessor.type".into()))?
         .to_string();
 
-    Ok(AccessorInfo { buffer_view_idx, byte_offset, component_type, count, accessor_type })
+    Ok(AccessorInfo {
+        buffer_view_idx,
+        byte_offset,
+        component_type,
+        count,
+        accessor_type,
+    })
 }
 
 pub fn get_buffer_view_info(json: &Value, buffer_view_idx: u64) -> Result<BufferViewInfo, Error> {
-    let bv = json.get("bufferViews")
+    let bv = json
+        .get("bufferViews")
         .and_then(|b| b.get(buffer_view_idx as usize))
         .ok_or(Error::BufferViewNotFound(buffer_view_idx))?;
 
-    let buffer_idx = bv.get("buffer").and_then(|v| v.as_u64())
+    let buffer_idx = bv
+        .get("buffer")
+        .and_then(|v| v.as_u64())
         .ok_or_else(|| Error::MissingField("bufferView.buffer".into()))?;
     let byte_offset = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let byte_length = bv.get("byteLength").and_then(|v| v.as_u64())
-        .ok_or_else(|| Error::MissingField("bufferView.byteLength".into()))? as usize;
-    let byte_stride = bv.get("byteStride").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let byte_length =
+        bv.get("byteLength")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| Error::MissingField("bufferView.byteLength".into()))? as usize;
+    let byte_stride = bv
+        .get("byteStride")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
 
-    Ok(BufferViewInfo { buffer_idx, byte_offset, byte_length, byte_stride })
+    Ok(BufferViewInfo {
+        buffer_idx,
+        byte_offset,
+        byte_length,
+        byte_stride,
+    })
 }
 
 fn component_count(accessor_type: &str) -> Result<usize, Error> {
@@ -124,7 +156,11 @@ fn component_count(accessor_type: &str) -> Result<usize, Error> {
     }
 }
 
-pub fn read_accessor_as_f32(json: &Value, buffer: &[u8], accessor_idx: u64) -> Result<Vec<f32>, Error> {
+pub fn read_accessor_as_f32(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<f32>, Error> {
     let accessor = get_accessor_info(json, accessor_idx)?;
     let buffer_view = get_buffer_view_info(json, accessor.buffer_view_idx)?;
 
@@ -151,7 +187,11 @@ pub fn read_accessor_as_f32(json: &Value, buffer: &[u8], accessor_idx: u64) -> R
     Ok(result)
 }
 
-pub fn read_accessor_as_u32(json: &Value, buffer: &[u8], accessor_idx: u64) -> Result<Vec<u32>, Error> {
+pub fn read_accessor_as_u32(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<u32>, Error> {
     let accessor = get_accessor_info(json, accessor_idx)?;
     let buffer_view = get_buffer_view_info(json, accessor.buffer_view_idx)?;
 
@@ -177,46 +217,90 @@ pub fn read_accessor_as_u32(json: &Value, buffer: &[u8], accessor_idx: u64) -> R
 fn read_component_as_f32(buffer: &[u8], offset: usize, ct: ComponentType) -> Result<f32, Error> {
     let size = ct.byte_size();
     if offset + size > buffer.len() {
-        return Err(Error::OutOfBounds { offset, size, buffer_len: buffer.len() });
+        return Err(Error::OutOfBounds {
+            offset,
+            size,
+            buffer_len: buffer.len(),
+        });
     }
 
     Ok(match ct {
         ComponentType::Byte => buffer[offset] as i8 as f32,
         ComponentType::UnsignedByte => buffer[offset] as f32,
         ComponentType::Short => i16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as f32,
-        ComponentType::UnsignedShort => u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as f32,
-        ComponentType::UnsignedInt => u32::from_le_bytes([buffer[offset], buffer[offset + 1], buffer[offset + 2], buffer[offset + 3]]) as f32,
-        ComponentType::Float => f32::from_le_bytes([buffer[offset], buffer[offset + 1], buffer[offset + 2], buffer[offset + 3]]),
+        ComponentType::UnsignedShort => {
+            u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as f32
+        }
+        ComponentType::UnsignedInt => u32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]) as f32,
+        ComponentType::Float => f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]),
     })
 }
 
 fn read_component_as_u32(buffer: &[u8], offset: usize, ct: ComponentType) -> Result<u32, Error> {
     let size = ct.byte_size();
     if offset + size > buffer.len() {
-        return Err(Error::OutOfBounds { offset, size, buffer_len: buffer.len() });
+        return Err(Error::OutOfBounds {
+            offset,
+            size,
+            buffer_len: buffer.len(),
+        });
     }
 
     Ok(match ct {
         ComponentType::Byte => buffer[offset] as i8 as u32,
         ComponentType::UnsignedByte => buffer[offset] as u32,
         ComponentType::Short => i16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as u32,
-        ComponentType::UnsignedShort => u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as u32,
-        ComponentType::UnsignedInt => u32::from_le_bytes([buffer[offset], buffer[offset + 1], buffer[offset + 2], buffer[offset + 3]]),
-        ComponentType::Float => f32::from_le_bytes([buffer[offset], buffer[offset + 1], buffer[offset + 2], buffer[offset + 3]]) as u32,
+        ComponentType::UnsignedShort => {
+            u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as u32
+        }
+        ComponentType::UnsignedInt => u32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]),
+        ComponentType::Float => f32::from_le_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]) as u32,
     })
 }
 
-pub fn read_accessor_as_vec3(json: &Value, buffer: &[u8], accessor_idx: u64) -> Result<Vec<[f32; 3]>, Error> {
+pub fn read_accessor_as_vec3(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<[f32; 3]>, Error> {
     let flat = read_accessor_as_f32(json, buffer, accessor_idx)?;
     Ok(flat.chunks(3).map(|c| [c[0], c[1], c[2]]).collect())
 }
 
-pub fn read_accessor_as_vec2(json: &Value, buffer: &[u8], accessor_idx: u64) -> Result<Vec<[f32; 2]>, Error> {
+pub fn read_accessor_as_vec2(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<[f32; 2]>, Error> {
     let flat = read_accessor_as_f32(json, buffer, accessor_idx)?;
     Ok(flat.chunks(2).map(|c| [c[0], c[1]]).collect())
 }
 
-pub fn read_accessor_as_vec4(json: &Value, buffer: &[u8], accessor_idx: u64) -> Result<Vec<[f32; 4]>, Error> {
+pub fn read_accessor_as_vec4(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<[f32; 4]>, Error> {
     let flat = read_accessor_as_f32(json, buffer, accessor_idx)?;
     Ok(flat.chunks(4).map(|c| [c[0], c[1], c[2], c[3]]).collect())
 }

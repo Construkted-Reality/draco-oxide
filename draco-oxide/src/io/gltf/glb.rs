@@ -69,9 +69,12 @@ pub fn parse_glb(data: &[u8]) -> Result<GlbData, Error> {
     let mut bin_data: Vec<u8> = Vec::new();
 
     while offset + 8 <= total_length {
-        let chunk_length =
-            u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
-                as usize;
+        let chunk_length = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]) as usize;
         let chunk_type = &data[offset + 4..offset + 8];
 
         let chunk_data_start = offset + 8;
@@ -95,16 +98,29 @@ pub fn parse_glb(data: &[u8]) -> Result<GlbData, Error> {
     }
 
     let json = json_data.ok_or(Error::MissingJsonChunk)?;
-    Ok(GlbData { json, buffer: bin_data })
+    Ok(GlbData {
+        json,
+        buffer: bin_data,
+    })
 }
 
 /// Write GLB format to a writer.
 pub fn write_glb<W: Write>(writer: &mut W, json: &[u8], buffer: &[u8]) -> Result<(), Error> {
     let json_padded_len = (json.len() + 3) & !3;
-    let buffer_padded_len = if buffer.is_empty() { 0 } else { (buffer.len() + 3) & !3 };
+    let buffer_padded_len = if buffer.is_empty() {
+        0
+    } else {
+        (buffer.len() + 3) & !3
+    };
 
-    let total_length = 12 + 8 + json_padded_len
-        + if buffer_padded_len > 0 { 8 + buffer_padded_len } else { 0 };
+    let total_length = 12
+        + 8
+        + json_padded_len
+        + if buffer_padded_len > 0 {
+            8 + buffer_padded_len
+        } else {
+            0
+        };
 
     writer.write_all(GLB_MAGIC)?;
     writer.write_all(&GLB_VERSION.to_le_bytes())?;

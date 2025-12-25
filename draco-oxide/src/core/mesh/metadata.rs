@@ -9,11 +9,11 @@ impl Metadata {
             entries: std::collections::HashMap::new(),
         }
     }
-    
+
     pub fn add_entry(&mut self, key: String, value: String) {
         self.entries.insert(key, value);
     }
-    
+
     pub fn get_entry(&self, key: &str) -> Option<&String> {
         self.entries.get(key)
     }

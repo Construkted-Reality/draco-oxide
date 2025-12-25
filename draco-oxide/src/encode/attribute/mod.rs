@@ -15,13 +15,14 @@ pub fn encode_attributes<W>(
     writer: &mut W,
     conn_out: ConnectivityEncoderOutput<'_>,
     cfg: &super::Config,
-) -> Result<(), Err> 
-    where W: ByteWriter
+) -> Result<(), Err>
+where
+    W: ByteWriter,
 {
     #[cfg(feature = "evaluation")]
     eval::scope_begin("attributes", writer);
 
-    // Write the number of attribute encoders/decoders (In draco-oxide, this is the same as the number of attributes as 
+    // Write the number of attribute encoders/decoders (In draco-oxide, this is the same as the number of attributes as
     // each attribute has its own encoder/decoder)
     writer.write_u8(atts.len() as u8);
     #[cfg(feature = "evaluation")]
@@ -55,13 +56,14 @@ pub fn encode_attributes<W>(
         // write the decoder type.
         PortabilizationType::default_for(att.get_attribute_type()).write_to(writer);
     }
-    
+
     for (i, att) in atts.into_iter().enumerate() {
         #[cfg(feature = "evaluation")]
         eval::scope_begin("attribute", writer);
 
         let parents_ids = att.get_parents();
-        let parents = parents_ids.iter()
+        let parents = parents_ids
+            .iter()
             .map(|id| port_atts.iter().find(|att| att.get_id() == *id).unwrap())
             .collect::<Vec<_>>();
 
@@ -92,10 +94,10 @@ pub fn encode_attributes<W>(
     Ok(())
 }
 
-
 #[derive(Clone, Debug)]
 pub struct Config {
-    #[allow(unused)] // This field is unused in the current implementation, as we only support the default attribute encoder configuration.
+    #[allow(unused)]
+    // This field is unused in the current implementation, as we only support the default attribute encoder configuration.
     cfgs: Vec<attribute_encoder::Config>,
 }
 
@@ -111,5 +113,5 @@ impl ConfigType for Config {
 #[derive(thiserror::Error, Debug)]
 pub enum Err {
     #[error("Attribute encoding error: {0}")]
-    AttributeError(#[from] attribute_encoder::Err)
+    AttributeError(#[from] attribute_encoder::Err),
 }

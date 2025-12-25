@@ -4,8 +4,9 @@ use crate::shared::attribute::Portable;
 
 use super::{Config, PortabilizationImpl};
 
-pub(crate) struct QuantizationCoordinateWise<Data, const N: usize> 
-    where Data: Vector<N>
+pub(crate) struct QuantizationCoordinateWise<Data, const N: usize>
+where
+    Data: Vector<N>,
 {
     att: Attribute,
     range_size: f32,
@@ -15,17 +16,17 @@ pub(crate) struct QuantizationCoordinateWise<Data, const N: usize>
 }
 
 impl<Data, const N: usize> QuantizationCoordinateWise<Data, N>
-    where 
-        NdVector<N, i32>: Vector<N, Component = i32>,
-        NdVector<N, f32>: Vector<N, Component = f32> + Portable,
-        Data: Vector<N> + Portable,
-        Data::Component: DataValue
+where
+    NdVector<N, i32>: Vector<N, Component = i32>,
+    NdVector<N, f32>: Vector<N, Component = f32> + Portable,
+    Data: Vector<N> + Portable,
+    Data::Component: DataValue,
 {
     pub fn new<W>(att: Attribute, cfg: Config, writer: &mut W) -> Self
     where
         W: ByteWriter,
     {
-        let mut min_values = NdVector::<N,f32>::zero();
+        let mut min_values = NdVector::<N, f32>::zero();
         for val in att.unique_vals_as_slice::<Data>() {
             for i in 0..N {
                 let component = val.get(i).to_f64() as f32;
@@ -35,7 +36,7 @@ impl<Data, const N: usize> QuantizationCoordinateWise<Data, N>
             }
         }
 
-        let mut max_values = NdVector::<N,f32>::zero();
+        let mut max_values = NdVector::<N, f32>::zero();
         for val in att.unique_vals_as_slice::<Data>() {
             for i in 0..N {
                 let component = val.get(i).to_f64() as f32;
@@ -77,12 +78,12 @@ impl<Data, const N: usize> QuantizationCoordinateWise<Data, N>
             out
         };
         let diff = val - self.min_values;
-        let normalized = if self.range_size==0.0 {
-            diff 
+        let normalized = if self.range_size == 0.0 {
+            diff
         } else {
             diff / self.range_size
         };
-        let quantized = normalized * f32::from_u64((1<<self.quantization_bits)-1);
+        let quantized = normalized * f32::from_u64((1 << self.quantization_bits) - 1);
         let mut out = NdVector::<N, i32>::zero();
         for i in 0..N {
             *out.get_mut(i) = (*quantized.get(i) + 0.5).to_i64() as i32;
@@ -92,25 +93,23 @@ impl<Data, const N: usize> QuantizationCoordinateWise<Data, N>
 }
 
 impl<Data, const N: usize> PortabilizationImpl<N> for QuantizationCoordinateWise<Data, N>
-    where
-        NdVector<N, i32>: Vector<N, Component = i32>,
-        NdVector<N, f32>: Vector<N, Component = f32> + Portable,
-        Data: Vector<N> + Portable,
+where
+    NdVector<N, i32>: Vector<N, Component = i32>,
+    NdVector<N, f32>: Vector<N, Component = f32> + Portable,
+    Data: Vector<N> + Portable,
 {
     fn portabilize(mut self) -> Attribute {
         let mut out = Vec::new();
         for i in 0..self.att.num_unique_values() {
             let i = AttributeValueIdx::from(i);
-            out.push(self.portabilize_value(
-                self.att.get_unique_val::<Data, N>(i)
-            ));
+            out.push(self.portabilize_value(self.att.get_unique_val::<Data, N>(i)));
         }
         let mut port_att = Attribute::from_without_removing_duplicates(
             self.att.get_id(),
-            out, 
+            out,
             self.att.get_attribute_type(),
-            self.att.get_domain(), 
-            self.att.get_parents().clone()
+            self.att.get_domain(),
+            self.att.get_parents().clone(),
         );
         port_att.set_point_to_att_val_map(self.att.take_point_to_att_val_map());
         port_att

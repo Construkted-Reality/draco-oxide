@@ -1,5 +1,5 @@
-use crate::core::shared::PointIdx;
 use crate::core::shared::ConfigType;
+use crate::core::shared::PointIdx;
 use crate::debug_write;
 use crate::encode::connectivity::ConnectivityEncoder;
 use crate::prelude::ByteWriter;
@@ -16,23 +16,20 @@ impl Sequential {
     pub fn new(config: Config, num_points: usize) -> Self {
         Self {
             cfg: config,
-            num_points
+            num_points,
         }
     }
 
-    fn encode_direct_indices<W>(
-        &self,
-        faces: &[[PointIdx; 3]],
-        writer: &mut W
-    ) -> Result<(), Err> 
-        where  W: ByteWriter,
+    fn encode_direct_indices<W>(&self, faces: &[[PointIdx; 3]], writer: &mut W) -> Result<(), Err>
+    where
+        W: ByteWriter,
     {
         let index_size = match index_size_from_vertex_count(self.num_points) {
             Ok(index_size) => index_size as u8,
             Err(err) => return Err(Err::SharedError(err)),
         };
         debug_write!("Start of indices", writer);
-        
+
         if index_size == 21 {
             // varint encoding
             for face in faces {
@@ -43,22 +40,28 @@ impl Sequential {
         } else {
             // non-varint encoding
             match index_size {
-                8 => for face in faces {
-                    writer.write_u8(usize::from(face[0]) as u8);
-                    writer.write_u8(usize::from(face[1]) as u8);
-                    writer.write_u8(usize::from(face[2]) as u8);
+                8 => {
+                    for face in faces {
+                        writer.write_u8(usize::from(face[0]) as u8);
+                        writer.write_u8(usize::from(face[1]) as u8);
+                        writer.write_u8(usize::from(face[2]) as u8);
+                    }
                 }
-                16 => for face in faces {
-                    writer.write_u16(usize::from(face[0]) as u16);
-                    writer.write_u16(usize::from(face[1]) as u16);
-                    writer.write_u16(usize::from(face[2]) as u16);
-                },
-                32 => for face in faces {
-                    writer.write_u32(usize::from(face[0]) as u32);
-                    writer.write_u32(usize::from(face[1]) as u32);
-                    writer.write_u32(usize::from(face[2]) as u32);
-                },
-                _ => unreachable!()
+                16 => {
+                    for face in faces {
+                        writer.write_u16(usize::from(face[0]) as u16);
+                        writer.write_u16(usize::from(face[1]) as u16);
+                        writer.write_u16(usize::from(face[2]) as u16);
+                    }
+                }
+                32 => {
+                    for face in faces {
+                        writer.write_u32(usize::from(face[0]) as u32);
+                        writer.write_u32(usize::from(face[1]) as u32);
+                        writer.write_u32(usize::from(face[2]) as u32);
+                    }
+                }
+                _ => unreachable!(),
             }
         }
         Ok(())
@@ -70,12 +73,9 @@ impl ConnectivityEncoder for Sequential {
     type Config = Config;
     type Output = ();
 
-    fn encode_connectivity<W>(
-        self, 
-        faces: &[[PointIdx; 3]],
-        writer: &mut W
-    ) -> Result<(), Err> 
-        where  W: ByteWriter,
+    fn encode_connectivity<W>(self, faces: &[[PointIdx; 3]], writer: &mut W) -> Result<(), Err>
+    where
+        W: ByteWriter,
     {
         writer.write_u64(faces.len() as u64);
         let encoder_method_id = self.cfg.encoder_method.get_id();
@@ -105,4 +105,3 @@ pub enum Err {
     #[error("Invalid vertex count")]
     SharedError(crate::shared::connectivity::sequential::Err),
 }
-

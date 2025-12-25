@@ -1,7 +1,10 @@
-use crate::{core::{bit_coder::ReaderErr}, prelude::{ByteReader, ByteWriter}};
+use crate::{
+    core::bit_coder::ReaderErr,
+    prelude::{ByteReader, ByteWriter},
+};
 
-pub mod symbol_encoder;
 pub mod prediction;
+pub mod symbol_encoder;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TopologySplit {
@@ -16,7 +19,6 @@ pub(crate) enum Orientation {
     Right,
 }
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)] // This enum is not used yet, as we only support the default configuration.
 pub(crate) enum EdgebreakerKind {
@@ -27,8 +29,9 @@ pub(crate) enum EdgebreakerKind {
 
 impl EdgebreakerKind {
     #[allow(unused)] // TODO: Remove this function when the decoder is complete
-    pub(crate) fn read_from<R>(reader: &mut R) -> Result<Self, Err> 
-        where R: ByteReader
+    pub(crate) fn read_from<R>(reader: &mut R) -> Result<Self, Err>
+    where
+        R: ByteReader,
     {
         let traversal_type = reader.read_u8()?;
         match traversal_type {
@@ -39,9 +42,9 @@ impl EdgebreakerKind {
         }
     }
 
-
-    pub(crate) fn write_to<W>(self, writer: &mut W) 
-        where W: ByteWriter
+    pub(crate) fn write_to<W>(self, writer: &mut W)
+    where
+        W: ByteWriter,
     {
         let traversal_type = match self {
             Self::Standard => 0,
@@ -52,21 +55,22 @@ impl EdgebreakerKind {
     }
 }
 
-
 pub(crate) const MAX_VALENCE: usize = 7;
 pub(crate) const MIN_VALENCE: usize = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TraversalType {
     DepthFirst,
-    #[allow(dead_code)] // This variant is not used yet. We might not implement this and may simply remove it in the future.
+    #[allow(dead_code)]
+    // This variant is not used yet. We might not implement this and may simply remove it in the future.
     PredictionDegree,
 }
 
 impl TraversalType {
     #[allow(unused)] // TODO: Remove this function when the decoder is complete
-    pub(crate) fn read_from<R>(reader: &mut R) -> Result<Self, Err> 
-        where R: ByteReader
+    pub(crate) fn read_from<R>(reader: &mut R) -> Result<Self, Err>
+    where
+        R: ByteReader,
     {
         let traversal_type = reader.read_u8()?;
         match traversal_type {
@@ -76,8 +80,9 @@ impl TraversalType {
         }
     }
 
-    pub(crate) fn write_to<W>(self, writer: &mut W) 
-        where W: ByteWriter
+    pub(crate) fn write_to<W>(self, writer: &mut W)
+    where
+        W: ByteWriter,
     {
         let traversal_type = match self {
             Self::DepthFirst => 0,
@@ -95,7 +100,6 @@ pub enum Err {
     ReaderError(#[from] ReaderErr),
 }
 
-
 #[allow(unused)] // This enum is not used yet, as we only support the default configuration.
 pub(crate) enum SymbolRansEncodingConfig {
     LengthCoded,
@@ -104,8 +108,9 @@ pub(crate) enum SymbolRansEncodingConfig {
 
 impl SymbolRansEncodingConfig {
     #[allow(unused)] // This function is not used yet, as we only support the default configuration.
-    pub(crate) fn read_from<R>(reader: &mut R) -> Result<Self, Err> 
-        where R: ByteReader
+    pub(crate) fn read_from<R>(reader: &mut R) -> Result<Self, Err>
+    where
+        R: ByteReader,
     {
         let config = reader.read_u8()?;
         match config {
@@ -116,8 +121,9 @@ impl SymbolRansEncodingConfig {
     }
 
     #[allow(unused)] // TODO: Remove this.
-    pub(crate) fn write_to<W>(self, writer: &mut W) 
-        where W: ByteWriter
+    pub(crate) fn write_to<W>(self, writer: &mut W)
+    where
+        W: ByteWriter,
     {
         let config = match self {
             Self::LengthCoded => 0,

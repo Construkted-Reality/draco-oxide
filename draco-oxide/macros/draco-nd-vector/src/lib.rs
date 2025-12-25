@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use std::env;
-use syn::{parse_macro_input, LitInt};
+use syn::{LitInt, parse_macro_input};
 
 #[proc_macro]
 pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
@@ -44,8 +44,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
     });
 
     let expanded = quote! {
-        impl<T> std::ops::Add for NdVector<#n, T> 
-            where 
+        impl<T> std::ops::Add for NdVector<#n, T>
+            where
                 T: std::ops::Add<Output = T> + std::ops::AddAssign + Copy
         {
             type Output = NdVector<#n, T>;
@@ -56,8 +56,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::AddAssign for NdVector<#n, T> 
-            where 
+        impl<T> std::ops::AddAssign for NdVector<#n, T>
+            where
                 T: std::ops::AddAssign + Copy
         {
             fn add_assign(&mut self, rhs: Self) {
@@ -65,8 +65,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::Sub for NdVector<#n, T> 
-            where 
+        impl<T> std::ops::Sub for NdVector<#n, T>
+            where
                 T: std::ops::Sub<Output = T> + std::ops::SubAssign + Copy
         {
             type Output = NdVector<#n, T>;
@@ -77,8 +77,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::SubAssign for NdVector<#n, T> 
-        where 
+        impl<T> std::ops::SubAssign for NdVector<#n, T>
+        where
             T: std::ops::SubAssign + Copy
         {
             fn sub_assign(&mut self, rhs: Self) {
@@ -86,8 +86,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::Mul<T> for NdVector<#n, T> 
-            where 
+        impl<T> std::ops::Mul<T> for NdVector<#n, T>
+            where
                 T: std::ops::Mul<Output = T> + std::ops::MulAssign + Copy
         {
             type Output = NdVector<#n, T>;
@@ -98,8 +98,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::MulAssign<T> for NdVector<#n, T> 
-        where 
+        impl<T> std::ops::MulAssign<T> for NdVector<#n, T>
+        where
             T: std::ops::MulAssign + Copy
         {
             fn mul_assign(&mut self, rhs: T){
@@ -107,8 +107,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::Div<T> for NdVector<#n, T> 
-            where 
+        impl<T> std::ops::Div<T> for NdVector<#n, T>
+            where
                 T: std::ops::Div<Output = T> + std::ops::DivAssign + Copy
         {
             type Output = NdVector<#n, T>;
@@ -119,8 +119,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<T> std::ops::DivAssign<T> for NdVector<#n, T> 
-        where 
+        impl<T> std::ops::DivAssign<T> for NdVector<#n, T>
+        where
             T: std::ops::DivAssign + Copy
         {
             fn div_assign(&mut self, rhs: T){
@@ -130,7 +130,7 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
 
 
         impl<Data> Dot for NdVector<#n, Data>
-            where Data: DataValue 
+            where Data: DataValue
         {
             type Product = Data;
             fn dot(self, rhs: Self) -> Self::Product {
@@ -144,7 +144,7 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
 
 
 
-        impl<Data> ElementWiseMul<Self> for NdVector<#n, Data> 
+        impl<Data> ElementWiseMul<Self> for NdVector<#n, Data>
             where Data: DataValue + ops::MulAssign
         {
             type Output = Self;
@@ -154,7 +154,7 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<Data> ElementWiseDiv<Self> for NdVector<#n, Data> 
+        impl<Data> ElementWiseDiv<Self> for NdVector<#n, Data>
             where Data: DataValue + ops::DivAssign
         {
             type Output = Self;
@@ -164,7 +164,7 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<Data> cmp::PartialEq for NdVector<#n, Data> 
+        impl<Data> cmp::PartialEq for NdVector<#n, Data>
             where Data: PartialEq
         {
             fn eq(&self, rhs: &Self) -> bool {
@@ -174,7 +174,7 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<Data> Portable for NdVector<#n, Data> 
+        impl<Data> Portable for NdVector<#n, Data>
             where Data: DataValue
         {
             fn to_bytes(self) -> Vec<u8> {
@@ -182,8 +182,8 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
                 unsafe { #(#indices_portable_to_bytes)* }
                 result
             }
-            
-            fn write_to<W>(self, writer: &mut W) 
+
+            fn write_to<W>(self, writer: &mut W)
                 where W: ByteWriter
             {
                 unsafe{ #(#indices_portable_write_to)* }
@@ -204,7 +204,7 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
         macro_rules! impl_vector {
             ($($t:ty);* ) => {
             $(
-                impl Vector<#n> for NdVector<#n, $t> 
+                impl Vector<#n> for NdVector<#n, $t>
                 {
                     type Component = $t;
                     fn zero() -> Self {
@@ -215,15 +215,15 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
                     fn get(&self, index: usize) -> &Self::Component {
                         self.data.index(index)
                     }
-                    
+
                     fn get_mut(&mut self, index: usize) -> &mut Self::Component {
                         self.data.index_mut(index)
                     }
-                    
+
                     unsafe fn get_unchecked(&self, index: usize) -> &Self::Component {
                         self.data.as_slice().get_unchecked(index)
                     }
-                    
+
                     unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut Self::Component {
                         self.data.as_mut_slice().get_unchecked_mut(index)
                     }
@@ -240,8 +240,6 @@ pub fn impl_ndvector_ops_for_dim(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
-
-
 
 #[proc_macro]
 pub fn impl_ndvector_ops(_input: TokenStream) -> TokenStream {

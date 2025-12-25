@@ -75,7 +75,8 @@ impl StructuralMetadata {
 
         // Copy property attributes.
         self.property_attributes.clear();
-        self.property_attributes.reserve(src.property_attributes.len());
+        self.property_attributes
+            .reserve(src.property_attributes.len());
         for property_attribute in &src.property_attributes {
             let mut new_attribute = PropertyAttribute::new();
             new_attribute.copy(property_attribute);
@@ -243,28 +244,28 @@ mod tests {
     #[test]
     fn test_property_table_operations() {
         let mut metadata = StructuralMetadata::new();
-        
+
         // Add property tables
         let table1 = PropertyTable::new();
         let table2 = PropertyTable::new();
-        
+
         let index1 = metadata.add_property_table(table1);
         let index2 = metadata.add_property_table(table2);
-        
+
         assert_eq!(index1, 0);
         assert_eq!(index2, 1);
         assert_eq!(metadata.num_property_tables(), 2);
-        
+
         // Test getting property tables
         assert!(metadata.get_property_table(0).is_some());
         assert!(metadata.get_property_table(1).is_some());
         assert!(metadata.get_property_table(2).is_none());
-        
+
         // Test removing property table
         let removed = metadata.remove_property_table(0);
         assert!(removed.is_some());
         assert_eq!(metadata.num_property_tables(), 1);
-        
+
         // Test out of bounds removal
         let not_removed = metadata.remove_property_table(10);
         assert!(not_removed.is_none());
@@ -273,23 +274,23 @@ mod tests {
     #[test]
     fn test_property_attribute_operations() {
         let mut metadata = StructuralMetadata::new();
-        
+
         // Add property attributes
         let attr1 = PropertyAttribute::new();
         let attr2 = PropertyAttribute::new();
-        
+
         let index1 = metadata.add_property_attribute(attr1);
         let index2 = metadata.add_property_attribute(attr2);
-        
+
         assert_eq!(index1, 0);
         assert_eq!(index2, 1);
         assert_eq!(metadata.num_property_attributes(), 2);
-        
+
         // Test getting property attributes
         assert!(metadata.get_property_attribute(0).is_some());
         assert!(metadata.get_property_attribute(1).is_some());
         assert!(metadata.get_property_attribute(2).is_none());
-        
+
         // Test removing property attribute
         let removed = metadata.remove_property_attribute(0);
         assert!(removed.is_some());
@@ -301,10 +302,10 @@ mod tests {
         let mut src = StructuralMetadata::new();
         src.add_property_table(PropertyTable::new());
         src.add_property_attribute(PropertyAttribute::new());
-        
+
         let mut dest = StructuralMetadata::new();
         dest.copy(&src);
-        
+
         assert_eq!(dest.num_property_tables(), 1);
         assert_eq!(dest.num_property_attributes(), 1);
     }
@@ -314,11 +315,11 @@ mod tests {
         let mut metadata = StructuralMetadata::new();
         metadata.add_property_table(PropertyTable::new());
         metadata.add_property_attribute(PropertyAttribute::new());
-        
+
         assert!(!metadata.is_empty());
-        
+
         metadata.clear();
-        
+
         assert!(metadata.is_empty());
         assert_eq!(metadata.num_property_tables(), 0);
         assert_eq!(metadata.num_property_attributes(), 0);
@@ -330,7 +331,7 @@ mod tests {
         let vec2 = vec![1, 2, 3];
         let vec3 = vec![1, 2, 4];
         let vec4 = vec![1, 2];
-        
+
         assert!(vectors_are_equal(&vec1, &vec2));
         assert!(!vectors_are_equal(&vec1, &vec3));
         assert!(!vectors_are_equal(&vec1, &vec4));

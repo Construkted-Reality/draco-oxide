@@ -81,7 +81,7 @@ impl<R: FnMut(u8)> ByteWriter for FunctionalByteWriter<R> {
     }
 }
 
-impl <R: FnMut(u8)> FunctionalByteWriter<R> {
+impl<R: FnMut(u8)> FunctionalByteWriter<R> {
     pub fn new(write_fn: R) -> Self {
         FunctionalByteWriter { write_fn }
     }
@@ -96,7 +96,7 @@ pub struct BitWriter<'buffer, Buffer: ByteWriter, Order: OrderConfig = MsbFirst>
 
     /// The current byte being written to. This byte will be written to the buffer when it is full.
     curr_byte: u8,
-    
+
     phantom: std::marker::PhantomData<Order>,
 }
 
@@ -111,69 +111,82 @@ impl<'buffer, Buffer: ByteWriter, Order: OrderConfig> BitWriter<'buffer, Buffer,
     }
 
     pub fn write_bits(&mut self, (size, value): (u8, u64)) {
-		let mut offset = if Order::IS_MSB_FIRST{ size } else { 0 };
-		
-		if self.pos_in_curr_byte != 0 {
+        let mut offset = if Order::IS_MSB_FIRST { size } else { 0 };
+
+        if self.pos_in_curr_byte != 0 {
             // Safety: by definition, `pos_in_curr_byte` is always less than 8.
-			let num_remaining_in_curr_byte = unsafe{ 8_u8.unchecked_sub(self.pos_in_curr_byte) };
-			if size <= num_remaining_in_curr_byte {
+            let num_remaining_in_curr_byte = unsafe { 8_u8.unchecked_sub(self.pos_in_curr_byte) };
+            if size <= num_remaining_in_curr_byte {
                 self.curr_byte |= if Order::IS_MSB_FIRST {
                     // Safety: `checked by the if condition above.
                     unsafe {
-                        (value & ((1<<num_remaining_in_curr_byte)-1)) << num_remaining_in_curr_byte.unchecked_sub(size)
+                        (value & ((1 << num_remaining_in_curr_byte) - 1))
+                            << num_remaining_in_curr_byte.unchecked_sub(size)
                     }
                 } else {
                     value << self.pos_in_curr_byte
                 } as u8;
-				self.pos_in_curr_byte = if size == num_remaining_in_curr_byte {
-					self.buffer.write_u8( self.curr_byte );
+                self.pos_in_curr_byte = if size == num_remaining_in_curr_byte {
+                    self.buffer.write_u8(self.curr_byte);
                     self.curr_byte = 0;
-					0
-				} else {
+                    0
+                } else {
                     unsafe { self.pos_in_curr_byte.unchecked_add(size) }
-				};
-				return;
-			}
+                };
+                return;
+            }
             self.curr_byte |= if Order::IS_MSB_FIRST {
                 // Safety: 'num_remaining_in_curr_byte' is guaranteed to be less than 8.
                 unsafe {
-                    (value >> size.unchecked_sub(num_remaining_in_curr_byte)) & ((1<<num_remaining_in_curr_byte)-1)
+                    (value >> size.unchecked_sub(num_remaining_in_curr_byte))
+                        & ((1 << num_remaining_in_curr_byte) - 1)
                 }
             } else {
                 value << self.pos_in_curr_byte
             } as u8;
-			self.buffer.write_u8(self.curr_byte);
+            self.buffer.write_u8(self.curr_byte);
             self.curr_byte = 0;
-			offset = if Order::IS_MSB_FIRST {
+            offset = if Order::IS_MSB_FIRST {
                 // Safety: `checked by the if condition above.
                 unsafe { size.unchecked_sub(num_remaining_in_curr_byte) }
-			} else {
-				num_remaining_in_curr_byte
-			}
-		}
-		
+            } else {
+                num_remaining_in_curr_byte
+            }
+        }
+
         // ToDo: Change the following and avoid the loop
-        // Safety: 
-        // In the case of MSB first. 'offset' is the number of bits remaining to write, and we iterate only 'offset/8' times 
+        // Safety:
+        // In the case of MSB first. 'offset' is the number of bits remaining to write, and we iterate only 'offset/8' times
         // means its safe to subtract 8 for each iteration.
         // In the case of LSB first, 'offset' is the number of bits written so far, so even if we add 8 to it '(size-offset)/8' times,
         // it is at most 'size', which is of type 'u8'. Hence it will never overflow.
-		for _ in 0.. if Order::IS_MSB_FIRST{ offset } else { unsafe{ size.unchecked_sub(offset) } } >> 3 { unsafe {
-			if Order::IS_MSB_FIRST{ offset = offset.unchecked_sub(8) };
-            self.buffer.write_u8((value >> offset) as u8);
-			if !Order::IS_MSB_FIRST{ offset = offset.unchecked_add(8) };
-		}}
-		self.curr_byte = if Order::IS_MSB_FIRST {
+        for _ in 0..if Order::IS_MSB_FIRST {
+            offset
+        } else {
+            unsafe { size.unchecked_sub(offset) }
+        } >> 3
+        {
+            unsafe {
+                if Order::IS_MSB_FIRST {
+                    offset = offset.unchecked_sub(8)
+                };
+                self.buffer.write_u8((value >> offset) as u8);
+                if !Order::IS_MSB_FIRST {
+                    offset = offset.unchecked_add(8)
+                };
+            }
+        }
+        self.curr_byte = if Order::IS_MSB_FIRST {
             // Safety: 'offset' is guaranteed to be less than or equal to 8 due to the previous loop.
-            unsafe{ (value & ((1<<offset)-1))<<(8_u8.unchecked_sub(offset)) }
+            unsafe { (value & ((1 << offset) - 1)) << (8_u8.unchecked_sub(offset)) }
         } else {
             value >> offset
         } as u8;
-		self.pos_in_curr_byte = if Order::IS_MSB_FIRST {
+        self.pos_in_curr_byte = if Order::IS_MSB_FIRST {
             offset
         } else {
             // Safety: 'size-offset' is guaranteed to be positive.
-            unsafe{ size.unchecked_sub(offset) & 7 }
+            unsafe { size.unchecked_sub(offset) & 7 }
         };
     }
 }
@@ -191,18 +204,11 @@ pub trait ByteReader {
     type Rev: ReverseByteReader;
     fn read_u8(&mut self) -> Result<u8, ReaderErr>;
     fn read_u16(&mut self) -> Result<u16, ReaderErr> {
-        let out = [
-            self.read_u8()?,
-            self.read_u8()?
-        ];
+        let out = [self.read_u8()?, self.read_u8()?];
         Ok(u16::from_le_bytes(out))
     }
     fn read_u24(&mut self) -> Result<u32, ReaderErr> {
-        let out = [
-            self.read_u8()?,
-            self.read_u8()?,
-            self.read_u8()?
-        ];
+        let out = [self.read_u8()?, self.read_u8()?, self.read_u8()?];
         Ok(u32::from_le_bytes([out[0], out[1], out[2], 0]))
     }
     fn read_u32(&mut self) -> Result<u32, ReaderErr> {
@@ -210,7 +216,7 @@ pub trait ByteReader {
             self.read_u8()?,
             self.read_u8()?,
             self.read_u8()?,
-            self.read_u8()?
+            self.read_u8()?,
         ];
         Ok(u32::from_le_bytes(out))
     }
@@ -223,12 +229,12 @@ pub trait ByteReader {
             self.read_u8()?,
             self.read_u8()?,
             self.read_u8()?,
-            self.read_u8()?
+            self.read_u8()?,
         ];
         Ok(u64::from_le_bytes(out))
     }
 
-    fn spown_reverse_reader_at(&mut self, offset: usize)-> Result<Self::Rev, ReaderErr>;
+    fn spown_reverse_reader_at(&mut self, offset: usize) -> Result<Self::Rev, ReaderErr>;
 }
 
 impl ByteReader for vec::IntoIter<u8> {
@@ -239,7 +245,7 @@ impl ByteReader for vec::IntoIter<u8> {
     fn read_u16(&mut self) -> Result<u16, ReaderErr> {
         let out = [
             self.next().ok_or(ReaderErr::NotEnoughData)?,
-            self.next().ok_or(ReaderErr::NotEnoughData)?
+            self.next().ok_or(ReaderErr::NotEnoughData)?,
         ];
         Ok(u16::from_le_bytes(out))
     }
@@ -249,7 +255,7 @@ impl ByteReader for vec::IntoIter<u8> {
             self.next().ok_or(ReaderErr::NotEnoughData)?,
             self.next().ok_or(ReaderErr::NotEnoughData)?,
             self.next().ok_or(ReaderErr::NotEnoughData)?,
-            self.next().ok_or(ReaderErr::NotEnoughData)?
+            self.next().ok_or(ReaderErr::NotEnoughData)?,
         ];
         Ok(u32::from_le_bytes(out))
     }
@@ -263,7 +269,7 @@ impl ByteReader for vec::IntoIter<u8> {
             self.next().ok_or(ReaderErr::NotEnoughData)?,
             self.next().ok_or(ReaderErr::NotEnoughData)?,
             self.next().ok_or(ReaderErr::NotEnoughData)?,
-            self.next().ok_or(ReaderErr::NotEnoughData)?
+            self.next().ok_or(ReaderErr::NotEnoughData)?,
         ];
         Ok(u64::from_le_bytes(out))
     }
@@ -281,23 +287,19 @@ impl ByteReader for vec::IntoIter<u8> {
     }
 }
 
-
 /// A special byte reader that is provided by draco-oxide that allows users to build
 /// custom byte readers using a cloure.
 pub struct FunctionalByteReader<R> {
     read_fn: R,
 }
 
-impl<R: FnMut()->Result<u8, ReaderErr>> ByteReader for FunctionalByteReader<R> {
+impl<R: FnMut() -> Result<u8, ReaderErr>> ByteReader for FunctionalByteReader<R> {
     fn read_u8(&mut self) -> Result<u8, ReaderErr> {
         (self.read_fn)()
     }
 
     fn read_u16(&mut self) -> Result<u16, ReaderErr> {
-        let out = [
-            self.read_u8()?,
-            self.read_u8()?
-        ];
+        let out = [self.read_u8()?, self.read_u8()?];
         Ok(u16::from_le_bytes(out))
     }
 
@@ -306,7 +308,7 @@ impl<R: FnMut()->Result<u8, ReaderErr>> ByteReader for FunctionalByteReader<R> {
             self.read_u8()?,
             self.read_u8()?,
             self.read_u8()?,
-            self.read_u8()?
+            self.read_u8()?,
         ];
         Ok(u32::from_le_bytes(out))
     }
@@ -320,14 +322,14 @@ impl<R: FnMut()->Result<u8, ReaderErr>> ByteReader for FunctionalByteReader<R> {
             self.read_u8()?,
             self.read_u8()?,
             self.read_u8()?,
-            self.read_u8()?
+            self.read_u8()?,
         ];
         Ok(u64::from_le_bytes(out))
     }
 
     type Rev = Rev<vec::IntoIter<u8>>;
 
-    fn spown_reverse_reader_at(&mut self, offset: usize)-> Result<Self::Rev, ReaderErr> {
+    fn spown_reverse_reader_at(&mut self, offset: usize) -> Result<Self::Rev, ReaderErr> {
         let mut vec = Vec::new();
         for _ in 0..offset {
             vec.push(self.read_u8()?);
@@ -362,87 +364,93 @@ impl<'buffer, Buffer: ByteReader, Order: OrderConfig> BitReader<'buffer, Buffer,
     /// Spowns a new BitReader from the given buffer if the buffer is not empty.
     /// If the buffer is empty then it returns 'None'.
     pub fn spown_from(buffer: &'buffer mut Buffer) -> Option<BitReader<'buffer, Buffer, Order>> {
-        Some(
-            BitReader {
-                buffer,
-                pos_in_curr_byte: 0,
-                curr_byte: 0,
-                phantom: std::marker::PhantomData,
-            }
-        )
+        Some(BitReader {
+            buffer,
+            pos_in_curr_byte: 0,
+            curr_byte: 0,
+            phantom: std::marker::PhantomData,
+        })
     }
 
     /// Reads 'size' bits from the buffer and returns them as a 'u64'.
     /// 'size' must be greater than 0 and less than or equal to 64.
     pub fn read_bits(&mut self, size: u8) -> Result<u64, ReaderErr> {
-        debug_assert!(size > 0 && size <= 64, "Size must be between 1 and 64 bits.");
+        debug_assert!(
+            size > 0 && size <= 64,
+            "Size must be between 1 and 64 bits."
+        );
 
-		let mut offset = if Order::IS_MSB_FIRST{ size } else { 0 };
-		let mut value: u64 = 0;
-		
-		if self.pos_in_curr_byte != 0 {
+        let mut offset = if Order::IS_MSB_FIRST { size } else { 0 };
+        let mut value: u64 = 0;
+
+        if self.pos_in_curr_byte != 0 {
             // Safety: by definition, `pos_in_curr_byte` is always less than 8.
-			let num_remaining_in_curr_byte = unsafe{ 8_u8.unchecked_sub(self.pos_in_curr_byte) };
-			if size <= num_remaining_in_curr_byte { 
-				value = unsafe {
-					if Order::IS_MSB_FIRST {
-						(self.curr_byte & ((1<<num_remaining_in_curr_byte)-1)) >> (num_remaining_in_curr_byte.unchecked_sub(size))
-					} else {
-						self.curr_byte >> self.pos_in_curr_byte
-					}
-				} as u64;
-				self.pos_in_curr_byte = if size == num_remaining_in_curr_byte {
-					0
-				} else {
-					unsafe { self.pos_in_curr_byte.unchecked_add(size) }
-				};
-				return Ok( value&((1<<size)-1) );
-			}
-			value = if Order::IS_MSB_FIRST {
-                ((self.curr_byte as usize) & ((1<<num_remaining_in_curr_byte)-1)) << unsafe { size.unchecked_sub(num_remaining_in_curr_byte) }
+            let num_remaining_in_curr_byte = unsafe { 8_u8.unchecked_sub(self.pos_in_curr_byte) };
+            if size <= num_remaining_in_curr_byte {
+                value = unsafe {
+                    if Order::IS_MSB_FIRST {
+                        (self.curr_byte & ((1 << num_remaining_in_curr_byte) - 1))
+                            >> (num_remaining_in_curr_byte.unchecked_sub(size))
+                    } else {
+                        self.curr_byte >> self.pos_in_curr_byte
+                    }
+                } as u64;
+                self.pos_in_curr_byte = if size == num_remaining_in_curr_byte {
+                    0
+                } else {
+                    unsafe { self.pos_in_curr_byte.unchecked_add(size) }
+                };
+                return Ok(value & ((1 << size) - 1));
+            }
+            value = if Order::IS_MSB_FIRST {
+                ((self.curr_byte as usize) & ((1 << num_remaining_in_curr_byte) - 1))
+                    << unsafe { size.unchecked_sub(num_remaining_in_curr_byte) }
             } else {
                 (self.curr_byte >> self.pos_in_curr_byte) as usize
-			} as u64;
-			offset = if Order::IS_MSB_FIRST {
-				unsafe{ offset.unchecked_sub(num_remaining_in_curr_byte) }
-			} else {
-				num_remaining_in_curr_byte
-			};
-		}
-		
-		
-		for _ in 0..if Order::IS_MSB_FIRST{ offset } else { unsafe{ size.unchecked_sub(offset) } } >> 3 {
-            self.curr_byte = self.buffer.read_u8()?;
-			if Order::IS_MSB_FIRST {
-				offset = unsafe{ offset.unchecked_sub(8) };
-			}
-			value |= (self.curr_byte as u64) << offset;
-			if !Order::IS_MSB_FIRST {
-				offset = unsafe{ offset.unchecked_add(8) };
-			}
-		}
+            } as u64;
+            offset = if Order::IS_MSB_FIRST {
+                unsafe { offset.unchecked_sub(num_remaining_in_curr_byte) }
+            } else {
+                num_remaining_in_curr_byte
+            };
+        }
 
-		// 'size - offset' is the number of bits remaining to be read.
-        if (Order::IS_MSB_FIRST&&offset>0) || (!Order::IS_MSB_FIRST&&size - offset > 0) {
+        for _ in 0..if Order::IS_MSB_FIRST {
+            offset
+        } else {
+            unsafe { size.unchecked_sub(offset) }
+        } >> 3
+        {
+            self.curr_byte = self.buffer.read_u8()?;
+            if Order::IS_MSB_FIRST {
+                offset = unsafe { offset.unchecked_sub(8) };
+            }
+            value |= (self.curr_byte as u64) << offset;
+            if !Order::IS_MSB_FIRST {
+                offset = unsafe { offset.unchecked_add(8) };
+            }
+        }
+
+        // 'size - offset' is the number of bits remaining to be read.
+        if (Order::IS_MSB_FIRST && offset > 0) || (!Order::IS_MSB_FIRST && size - offset > 0) {
             self.curr_byte = self.buffer.read_u8()?;
             value |= unsafe {
                 if Order::IS_MSB_FIRST {
-                    (self.curr_byte as u64 >> (8_u8.unchecked_sub(offset))) & ((1<<offset)-1)
+                    (self.curr_byte as u64 >> (8_u8.unchecked_sub(offset))) & ((1 << offset) - 1)
                 } else {
-                    (self.curr_byte as u64 & ((1<<size.unchecked_sub(offset))-1)) << offset
+                    (self.curr_byte as u64 & ((1 << size.unchecked_sub(offset)) - 1)) << offset
                 }
             };
         }
 
-		self.pos_in_curr_byte = if Order::IS_MSB_FIRST {
-			offset
-		} else {
-			(size-offset) & 7
-		};
-		Ok( value )
+        self.pos_in_curr_byte = if Order::IS_MSB_FIRST {
+            offset
+        } else {
+            (size - offset) & 7
+        };
+        Ok(value)
     }
 }
-
 
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReaderErr {
@@ -450,15 +458,11 @@ pub enum ReaderErr {
     NotEnoughData,
 }
 
-
 #[allow(unused)] // will be used in the decoder
 pub trait ReverseByteReader {
     fn read_u8_back(&mut self) -> Result<u8, ReaderErr>;
     fn read_u16_back(&mut self) -> Result<u16, ReaderErr> {
-        let mut out = [
-            self.read_u8_back()?,
-            self.read_u8_back()?
-        ];
+        let mut out = [self.read_u8_back()?, self.read_u8_back()?];
         out.reverse();
         Ok(u16::from_le_bytes(out))
     }
@@ -466,7 +470,7 @@ pub trait ReverseByteReader {
         let mut out = [
             self.read_u8_back()?,
             self.read_u8_back()?,
-            self.read_u8_back()?
+            self.read_u8_back()?,
         ];
         out.reverse();
         Ok(u32::from_le_bytes([out[0], out[1], out[2], 0]))
@@ -476,7 +480,7 @@ pub trait ReverseByteReader {
             self.read_u8_back()?,
             self.read_u8_back()?,
             self.read_u8_back()?,
-            self.read_u8_back()?
+            self.read_u8_back()?,
         ];
         out.reverse();
         Ok(u32::from_le_bytes(out))
@@ -490,7 +494,7 @@ pub trait ReverseByteReader {
             self.read_u8_back()?,
             self.read_u8_back()?,
             self.read_u8_back()?,
-            self.read_u8_back()?
+            self.read_u8_back()?,
         ];
         out.reverse();
         Ok(u64::from_le_bytes(out))
@@ -503,33 +507,32 @@ impl<I: DoubleEndedIterator<Item = u8>> ReverseByteReader for Rev<I> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use super::BitWriter;
     use crate::core::{bit_coder::BitReader, buffer::*};
     use crate::prelude::ByteWriter;
-    use super::BitWriter;
 
     #[test]
     fn test_writer_reader_msb_first() {
         let mut buffer = Vec::new();
-        let mut writer = BitWriter::<_,MsbFirst>::spown_from(&mut buffer);
+        let mut writer = BitWriter::<_, MsbFirst>::spown_from(&mut buffer);
         writer.write_bits((2, 0b10));
         writer.write_bits((3, 0b011));
         drop(writer); // drop the bit writer to end bit-writing
         assert_eq!(buffer.len(), 1);
         let mut reader = buffer.into_iter();
-        let mut reader = BitReader::<_,MsbFirst>::spown_from(&mut reader).unwrap();
+        let mut reader = BitReader::<_, MsbFirst>::spown_from(&mut reader).unwrap();
         assert_eq!(reader.read_bits(2).unwrap(), 0b10);
         assert_eq!(reader.read_bits(3).unwrap(), 0b011);
 
         let mut buffer = Vec::new();
-        let mut writer = BitWriter::<_,MsbFirst>::spown_from(&mut buffer);
+        let mut writer = BitWriter::<_, MsbFirst>::spown_from(&mut buffer);
         writer.write_bits((7, 0b0111010));
         drop(writer); // drop the bit writer to end bit-writing
         assert_eq!(buffer.len(), 1);
         let mut reader = buffer.into_iter();
-        let mut reader = BitReader::<_,MsbFirst>::spown_from(&mut reader).unwrap();
+        let mut reader = BitReader::<_, MsbFirst>::spown_from(&mut reader).unwrap();
         assert_eq!(reader.read_bits(7).unwrap(), 0b0111010);
 
         let mut buffer = Vec::new();
@@ -551,7 +554,7 @@ mod tests {
         let mut reader = buffer.into_iter();
         let mut reader: BitReader<_> = BitReader::spown_from(&mut reader).unwrap();
         assert_eq!(reader.read_bits(9).unwrap(), 0b110111011);
-        
+
         let mut buffer = Vec::new();
         let mut writer: BitWriter<_> = BitWriter::spown_from(&mut buffer);
         writer.write_bits((9, 0b101010100));
@@ -561,7 +564,7 @@ mod tests {
         writer.write_bits((5, 0b00001));
         writer.write_bits((4, 0b1100));
         drop(writer); // drop the bit writer to end bit-writing
-        assert_eq!(buffer.len(), (9+8+7+6+5+4)/8+1);
+        assert_eq!(buffer.len(), (9 + 8 + 7 + 6 + 5 + 4) / 8 + 1);
         assert_eq!(buffer[0], 0b10101010);
         assert_eq!(buffer[1], 0b01010111);
         assert_eq!(buffer[2], 0b00101010);
@@ -575,7 +578,7 @@ mod tests {
         assert_eq!(reader.read_bits(6).unwrap(), 0b111100);
         assert_eq!(reader.read_bits(5).unwrap(), 0b00001);
         assert_eq!(reader.read_bits(4).unwrap(), 0b1100);
-        
+
         let mut buffer = Vec::new();
         let mut writer: BitWriter<_> = BitWriter::spown_from(&mut buffer);
         writer.write_bits((11, 0b10111010110));
@@ -588,14 +591,13 @@ mod tests {
         assert_eq!(reader.read_bits(3).unwrap(), 0b110);
         assert_eq!(reader.read_bits(3).unwrap(), 0b101);
         assert_eq!(reader.read_bits(2).unwrap(), 0b10);
-
     }
 
     #[test]
     fn test_writer_reader_lsb_first() {
         let mut buffer = Vec::new();
         {
-            let mut writer = BitWriter::<_,LsbFirst>::spown_from(&mut buffer);
+            let mut writer = BitWriter::<_, LsbFirst>::spown_from(&mut buffer);
             writer.write_bits((9, 0b101010100));
             writer.write_bits((8, 0b10101010));
             writer.write_bits((7, 0b0101010));
@@ -603,9 +605,9 @@ mod tests {
             writer.write_bits((5, 0b00001));
             writer.write_bits((4, 0b1100));
         }
-        assert_eq!(buffer.len(), (9+8+7+6+5+4)/8+1);
+        assert_eq!(buffer.len(), (9 + 8 + 7 + 6 + 5 + 4) / 8 + 1);
         let mut reader = buffer.into_iter();
-        let mut reader = BitReader::<_,LsbFirst>::spown_from(&mut reader).unwrap();
+        let mut reader = BitReader::<_, LsbFirst>::spown_from(&mut reader).unwrap();
         assert_eq!(reader.read_bits(9).unwrap(), 0b101010100);
         assert_eq!(reader.read_bits(8).unwrap(), 0b10101010);
         assert_eq!(reader.read_bits(7).unwrap(), 0b0101010);
@@ -615,20 +617,20 @@ mod tests {
 
         let mut buffer = Vec::new();
         {
-            let mut writer = BitWriter::<_,LsbFirst>::spown_from(&mut buffer);
+            let mut writer = BitWriter::<_, LsbFirst>::spown_from(&mut buffer);
             writer.write_bits((10, 0b1010101010));
         }
         assert_eq!(buffer.len(), 2);
         let mut reader = buffer.into_iter();
-        let mut reader = BitReader::<_,LsbFirst>::spown_from(&mut reader).unwrap();
+        let mut reader = BitReader::<_, LsbFirst>::spown_from(&mut reader).unwrap();
         for _ in 0..5 {
             assert_eq!(reader.read_bits(2).unwrap(), 0b10);
         }
     }
 
     use crate::core::bit_coder::ByteReader;
-    use crate::core::bit_coder::ReverseByteReader;
     use crate::core::bit_coder::ReaderErr::NotEnoughData;
+    use crate::core::bit_coder::ReverseByteReader;
     #[test]
     fn test_reverse_reader1() {
         let buffer = vec![1_u8, 2, 3, 4, 5];
@@ -643,7 +645,7 @@ mod tests {
         assert!(reader.next().is_none());
     }
 
-        #[test]
+    #[test]
     fn test_reverse_reader2() {
         let mut buffer = Vec::new();
         buffer.write_u8(200);

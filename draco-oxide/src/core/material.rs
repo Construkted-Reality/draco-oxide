@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{core::{texture::{self, TextureLibrary, TextureMap}}, prelude::NdVector};
+use crate::{
+    core::texture::{self, TextureLibrary, TextureMap},
+    prelude::NdVector,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct MaterialLibrary {
@@ -45,7 +48,6 @@ impl MaterialLibrary {
         self.materials.len() - 1
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub(crate) struct Material {
@@ -144,7 +146,8 @@ impl Material {
     }
 
     pub fn get_texture_map_by_type(&self, texture_type: texture::Type) -> Option<&TextureMap> {
-        self.texture_map_type_to_index_map.get(&texture_type)
+        self.texture_map_type_to_index_map
+            .get(&texture_type)
             .and_then(|&idx| self.get_texture_map_by_index(idx))
     }
 
@@ -199,9 +202,13 @@ impl Material {
     }
 
     pub fn check_any_pbr_extensions(&self) -> bool {
-        self.has_sheen || self.has_transmission || self.has_clearcoat ||
-        self.has_volume || self.has_ior || self.has_specular 
-        || self.unlit
+        self.has_sheen
+            || self.has_transmission
+            || self.has_clearcoat
+            || self.has_volume
+            || self.has_ior
+            || self.has_specular
+            || self.unlit
     }
 
     pub fn has_sheen(&self) -> bool {
@@ -236,7 +243,8 @@ impl Material {
             // Add new texture map
             let index = self.texture_maps.len();
             self.texture_maps.push(Box::new(texture_map));
-            self.texture_map_type_to_index_map.insert(texture_type, index);
+            self.texture_map_type_to_index_map
+                .insert(texture_type, index);
         }
     }
 }

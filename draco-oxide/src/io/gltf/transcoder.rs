@@ -14,7 +14,9 @@ use std::path::Path;
 
 use super::buffer_builder::BufferBuilder;
 use super::draco_extension::{self, DracoAttributeIds};
-use super::geometry_extractor::{self, read_accessor_as_u32, read_accessor_as_vec2, read_accessor_as_vec3, read_accessor_as_vec4};
+use super::geometry_extractor::{
+    self, read_accessor_as_u32, read_accessor_as_vec2, read_accessor_as_vec3, read_accessor_as_vec4,
+};
 use super::glb;
 
 #[derive(Debug, thiserror::Error)]
@@ -104,7 +106,11 @@ impl GltfTranscoder {
     /// Transcode GLB input and write to a file.
     ///
     /// Output format is determined by file extension (.glb or .gltf).
-    pub fn transcode_to_file(&self, input: &[u8], output_path: &Path) -> Result<Vec<String>, Error> {
+    pub fn transcode_to_file(
+        &self,
+        input: &[u8],
+        output_path: &Path,
+    ) -> Result<Vec<String>, Error> {
         let extension = output_path
             .extension()
             .and_then(|e| e.to_str())
@@ -119,9 +125,16 @@ impl GltfTranscoder {
                     .and_then(|s| s.to_str())
                     .map(|s| format!("{}.bin", s))
                     .unwrap_or_else(|| "buffer.bin".to_string());
-                OutputFormat::Gltf { bin_filename: bin_name }
+                OutputFormat::Gltf {
+                    bin_filename: bin_name,
+                }
             }
-            _ => return Err(Error::InvalidInput(format!("Unknown output extension: {}", extension))),
+            _ => {
+                return Err(Error::InvalidInput(format!(
+                    "Unknown output extension: {}",
+                    extension
+                )))
+            }
         };
 
         let result = self.transcode(input, &format)?;
@@ -137,7 +150,10 @@ impl GltfTranscoder {
 
                 // Write binary buffer
                 if !result.buffer.is_empty() {
-                    let bin_path = output_path.parent().unwrap_or(Path::new(".")).join(bin_filename);
+                    let bin_path = output_path
+                        .parent()
+                        .unwrap_or(Path::new("."))
+                        .join(bin_filename);
                     std::fs::write(bin_path, &result.buffer)?;
                 }
             }
@@ -178,7 +194,12 @@ impl GltfTranscoder {
             for (mesh_idx, mesh) in meshes.iter().enumerate() {
                 if let Some(primitives) = mesh.get("primitives").and_then(|p| p.as_array()) {
                     for (prim_idx, primitive) in primitives.iter().enumerate() {
-                        match self.process_primitive(&json, original_buffer, primitive, &mut new_buffer) {
+                        match self.process_primitive(
+                            &json,
+                            original_buffer,
+                            primitive,
+                            &mut new_buffer,
+                        ) {
                             Ok(Some(compressed)) => {
                                 compressed_data.push(CompressedPrimitive {
                                     mesh_idx,
@@ -201,7 +222,8 @@ impl GltfTranscoder {
                             Err(SkipReason::NonTriangle(mode)) => {
                                 warnings.push(format!(
                                     "Mesh {} primitive {}: non-triangle mode ({}), skipping",
-                                    mesh_idx, prim_idx,
+                                    mesh_idx,
+                                    prim_idx,
                                     draco_extension::primitive_mode_name(mode)
                                 ));
                             }
@@ -221,8 +243,10 @@ impl GltfTranscoder {
             for (old_idx, bv) in buffer_views.iter().enumerate() {
                 if !geometry_views.contains(&old_idx) {
                     // Non-geometry bufferView - copy to new buffer
-                    let byte_offset = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                    let byte_length = bv.get("byteLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let byte_offset =
+                        bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let byte_length =
+                        bv.get("byteLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
                     if byte_offset + byte_length <= original_buffer.len() {
                         let data = &original_buffer[byte_offset..byte_offset + byte_length];
@@ -383,8 +407,9 @@ impl GltfTranscoder {
                         // Try VEC4 first, fall back to VEC3
                         let colors = read_accessor_as_vec4(json, buffer, idx)
                             .or_else(|_| {
-                                read_accessor_as_vec3(json, buffer, idx)
-                                    .map(|v| v.into_iter().map(|c| [c[0], c[1], c[2], 1.0]).collect())
+                                read_accessor_as_vec3(json, buffer, idx).map(|v| {
+                                    v.into_iter().map(|c| [c[0], c[1], c[2], 1.0]).collect()
+                                })
                             })
                             .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
                         geometry.colors.push((name.to_string(), colors));
@@ -417,7 +442,10 @@ impl GltfTranscoder {
     }
 
     /// Build a Draco Mesh from extracted geometry.
-    fn build_mesh(&self, geometry: &ExtractedGeometry) -> Result<crate::core::mesh::Mesh, SkipReason> {
+    fn build_mesh(
+        &self,
+        geometry: &ExtractedGeometry,
+    ) -> Result<crate::core::mesh::Mesh, SkipReason> {
         let mut builder = MeshBuilder::new();
 
         // Set faces from indices
@@ -450,7 +478,8 @@ impl GltfTranscoder {
 
         // Add normal attribute
         if let Some(ref normals) = geometry.normals {
-            let normals: Vec<NdVector<3, f32>> = normals.iter().map(|n| NdVector::from(*n)).collect();
+            let normals: Vec<NdVector<3, f32>> =
+                normals.iter().map(|n| NdVector::from(*n)).collect();
             builder.add_attribute(
                 normals,
                 AttributeType::Normal,
@@ -461,7 +490,8 @@ impl GltfTranscoder {
 
         // Add texture coordinates
         for (_name, texcoords) in &geometry.texcoords {
-            let texcoords: Vec<NdVector<2, f32>> = texcoords.iter().map(|t| NdVector::from(*t)).collect();
+            let texcoords: Vec<NdVector<2, f32>> =
+                texcoords.iter().map(|t| NdVector::from(*t)).collect();
             builder.add_attribute(
                 texcoords,
                 AttributeType::TextureCoordinate,
@@ -483,7 +513,8 @@ impl GltfTranscoder {
 
         // Add tangents
         if let Some(ref tangents) = geometry.tangents {
-            let tangents: Vec<NdVector<4, f32>> = tangents.iter().map(|t| NdVector::from(*t)).collect();
+            let tangents: Vec<NdVector<4, f32>> =
+                tangents.iter().map(|t| NdVector::from(*t)).collect();
             builder.add_attribute(
                 tangents,
                 AttributeType::Tangent,
@@ -644,7 +675,9 @@ mod tests {
         };
 
         let transcoder = GltfTranscoder::default();
-        let (output, warnings) = transcoder.transcode_to_glb(&input).expect("Transcoding failed");
+        let (output, warnings) = transcoder
+            .transcode_to_glb(&input)
+            .expect("Transcoding failed");
 
         // Output should be non-empty
         assert!(!output.is_empty(), "Output should not be empty");
@@ -652,7 +685,10 @@ mod tests {
         // Output should be smaller than input (compressed)
         println!("Input size: {} bytes", input.len());
         println!("Output size: {} bytes", output.len());
-        println!("Compression ratio: {:.2}%", (output.len() as f64 / input.len() as f64) * 100.0);
+        println!(
+            "Compression ratio: {:.2}%",
+            (output.len() as f64 / input.len() as f64) * 100.0
+        );
 
         for warning in &warnings {
             println!("Warning: {}", warning);
@@ -686,7 +722,9 @@ mod tests {
         // Run transcoding multiple times
         let mut outputs = Vec::new();
         for _ in 0..5 {
-            let (output, _) = transcoder.transcode_to_glb(&input).expect("Transcoding failed");
+            let (output, _) = transcoder
+                .transcode_to_glb(&input)
+                .expect("Transcoding failed");
             outputs.push(output);
         }
 
@@ -701,6 +739,9 @@ mod tests {
             assert_eq!(&outputs[0], output, "Output {} differs", i);
         }
 
-        println!("Determinism test passed: {} runs produced identical output", outputs.len());
+        println!(
+            "Determinism test passed: {} runs produced identical output",
+            outputs.len()
+        );
     }
 }

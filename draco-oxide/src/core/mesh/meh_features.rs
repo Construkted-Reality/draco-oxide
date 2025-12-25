@@ -23,7 +23,7 @@ impl MeshFeatures {
             property_table_index: -1,
         }
     }
-    
+
     pub fn set_label(&mut self, label: &str) {
         self.label = label.to_owned();
     }

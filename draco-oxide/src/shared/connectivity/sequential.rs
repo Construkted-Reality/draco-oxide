@@ -11,17 +11,16 @@ pub(crate) fn index_size_from_vertex_count(vertex_count: usize) -> Result<usize,
     }
 }
 
-
 #[derive(Debug)]
 pub enum Err {
-    TooManyVertices
+    TooManyVertices,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Method {
     #[allow(unused)]
     Compressed,
-    DirectIndices
+    DirectIndices,
 }
 
 impl Method {

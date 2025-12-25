@@ -1,20 +1,20 @@
-use std::collections::HashMap;
 use gltf::accessor::Dimensions;
 use gltf::Accessor;
 use gltf::Primitive;
 use gltf::Semantic;
+use std::collections::HashMap;
 
-use crate::core::attribute::{AttributeDomain, AttributeId};
-use crate::core::mesh::Mesh;
-use crate::core::mesh::meh_features::MeshFeatures;
 use crate::core::attribute::ComponentDataType;
+use crate::core::attribute::{AttributeDomain, AttributeId};
+use crate::core::mesh::meh_features::MeshFeatures;
+use crate::core::mesh::Mesh;
 use crate::core::scene::Matrix4d;
 use crate::core::scene::Scene;
 use crate::core::scene::TrsMatrix;
+use crate::core::shared::NdVector;
 use crate::core::texture::TextureMap;
 use crate::prelude::AttributeType;
 use crate::prelude::MeshBuilder;
-use crate::core::shared::NdVector;
 
 /// Holds extension attributes that the gltf crate doesn't recognize
 #[derive(Debug, Clone)]
@@ -70,7 +70,6 @@ pub const TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST: i32 = 9984;
 pub const TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST: i32 = 9985;
 pub const TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR: i32 = 9986;
 pub const TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR: i32 = 9987;
-
 
 /// Scene graph can be loaded either as a tree or a general directed acyclic
 /// graph (DAG) that allows multiple parent nodes. By default, we decode the
@@ -160,7 +159,7 @@ pub struct GltfDecoder {
     // Class used to build the Draco mesh.
     // TODO: Replace with actual builder types once implemented
     mb: Option<MeshBuilder>, // TriangleSoupMeshBuilder
-    pb: Option<()>, // PointCloudBuilder
+    pb: Option<()>,          // PointCloudBuilder
 
     // Map from the index in a feature ID vertex attribute name like _FEATURE_ID_5
     // to the corresponding attribute index in the current geometry builder.
@@ -206,13 +205,13 @@ pub struct GltfDecoder {
 
     // Extension attributes extracted from raw JSON
     extension_attributes: Vec<Vec<ExtensionAttributes>>,
-    
+
     // WebP image information for restoration during encoding
     webp_info: Option<String>,
-    
+
     // Temporary storage for document-level structural metadata
     temp_document_structural_metadata: Option<serde_json::Value>,
-    
+
     // Temporary storage for mesh features JSON
     temp_mesh_features_json: Option<String>,
 }
@@ -259,12 +258,15 @@ impl GltfDecoder {
 
         // Build the mesh from the loaded glTF model
         self.build_mesh()
-        
     }
 
     /// Decodes a glTF file stored in the input file_name to a Mesh.
     /// Returns a vector of files used as input to the mesh during the decoding process.
-    pub fn decode_from_file_with_files(&mut self, file_name: &str, input_files: Option<&mut Vec<String>>) -> Result<Mesh, Err> {
+    pub fn decode_from_file_with_files(
+        &mut self,
+        file_name: &str,
+        input_files: Option<&mut Vec<String>>,
+    ) -> Result<Mesh, Err> {
         // Load the glTF file and track input files if requested
         self.load_file(file_name, input_files)?;
 
@@ -290,7 +292,11 @@ impl GltfDecoder {
 
     /// Decodes a glTF file stored in the input file_name to a Scene.
     /// Returns a vector of files used as input to the scene during the decoding process.
-    pub fn decode_from_file_to_scene_with_files(&mut self, file_name: &str, mut input_files: Vec<String>) -> Result<Scene, Err> {
+    pub fn decode_from_file_to_scene_with_files(
+        &mut self,
+        file_name: &str,
+        mut input_files: Vec<String>,
+    ) -> Result<Scene, Err> {
         // Load the glTF file and track input files
         self.load_file(file_name, Some(&mut input_files))?;
 
@@ -337,11 +343,15 @@ impl GltfDecoder {
 
     /// Loads file_name into gltf_model. Fills input_files with paths to all
     /// input files when provided.
-    fn load_file(&mut self, file_name: &str, input_files: Option<&mut Vec<String>>) -> Result<(), Err> {
-        use std::path::Path;
+    fn load_file(
+        &mut self,
+        file_name: &str,
+        input_files: Option<&mut Vec<String>>,
+    ) -> Result<(), Err> {
         use std::fs::File;
         use std::io::Read;
-        
+        use std::path::Path;
+
         // Try to load glTF document using the standard import
         let (gltf, buffers, _images) = match gltf::import(file_name) {
             Ok(result) => result,
@@ -352,50 +362,63 @@ impl GltfDecoder {
                 let mut contents = Vec::new();
                 file.read_to_end(&mut contents)
                     .map_err(|io_e| Err::IoError(format!("Failed to read file: {}", io_e)))?;
-                
+
                 // Check if it's a binary glTF (.glb) file
                 if file_name.ends_with(".glb") {
                     // Parse as GLB
                     let glb = gltf::Glb::from_slice(&contents)
                         .map_err(|glb_e| Err::IoError(format!("Failed to parse GLB: {}", glb_e)))?;
-                    
+
                     // Load without validation
-                    let gltf = gltf::Gltf::from_slice_without_validation(&glb.json)
-                        .map_err(|gltf_e| Err::IoError(format!("Failed to load glTF: {} (validation error: {})", gltf_e, e)))?;
-                    
+                    let gltf =
+                        gltf::Gltf::from_slice_without_validation(&glb.json).map_err(|gltf_e| {
+                            Err::IoError(format!(
+                                "Failed to load glTF: {} (validation error: {})",
+                                gltf_e, e
+                            ))
+                        })?;
+
                     // Parse extension attributes from the raw JSON
                     self.parse_extension_attributes_from_json(&glb.json)?;
-                    
-                    let buffers = glb.bin
+
+                    let buffers = glb
+                        .bin
                         .map(|data| vec![gltf::buffer::Data(data.to_vec())])
                         .unwrap_or_default();
-                    
+
                     (gltf.document, buffers, vec![])
                 } else {
                     // Parse as JSON glTF
-                    let gltf = gltf::Gltf::from_slice_without_validation(&contents)
-                        .map_err(|gltf_e| Err::IoError(format!("Failed to load glTF: {} (validation error: {})", gltf_e, e)))?;
-                    
+                    let gltf =
+                        gltf::Gltf::from_slice_without_validation(&contents).map_err(|gltf_e| {
+                            Err::IoError(format!(
+                                "Failed to load glTF: {} (validation error: {})",
+                                gltf_e, e
+                            ))
+                        })?;
+
                     // Parse extension attributes from the raw JSON
                     self.parse_extension_attributes_from_json(&contents)?;
-                    
+
                     // Import buffers separately
-                    let base_path = Path::new(file_name).parent()
+                    let base_path = Path::new(file_name)
+                        .parent()
                         .ok_or_else(|| Err::IoError("Invalid file path".to_string()))?;
-                    
+
                     let buffers = gltf::import_buffers(&gltf.document, Some(base_path), None)
-                        .map_err(|buf_e| Err::IoError(format!("Failed to import buffers: {}", buf_e)))?;
-                    
+                        .map_err(|buf_e| {
+                            Err::IoError(format!("Failed to import buffers: {}", buf_e))
+                        })?;
+
                     (gltf.document, buffers, vec![])
                 }
             }
         };
 
-
         // Track input files if requested
         if let Some(input_files) = input_files {
             input_files.push(file_name.to_string());
-            
+
             // Add any additional files referenced by the glTF (images, bin files)
             for image in gltf.images() {
                 if let gltf::image::Source::Uri { uri, .. } = image.source() {
@@ -408,10 +431,10 @@ impl GltfDecoder {
                     }
                 }
             }
-            
+
             for buffer in gltf.buffers() {
                 if let gltf::buffer::Source::Uri(uri) = buffer.source() {
-                    // Resolve relative paths  
+                    // Resolve relative paths
                     if let Some(parent) = Path::new(file_name).parent() {
                         let buffer_path = parent.join(uri);
                         if let Some(path_str) = buffer_path.to_str() {
@@ -430,10 +453,10 @@ impl GltfDecoder {
 
         // Check for unsupported features
         self.check_unsupported_features()?;
-        
+
         // Store the input file name
         self.input_file_name = file_name.to_string();
-        
+
         Ok(())
     }
 
@@ -441,11 +464,18 @@ impl GltfDecoder {
     fn load_buffer(&mut self, buffer: &[u8]) -> Result<(), Err> {
         // Try to load glTF document from binary buffer, following the same pattern as load_file
         // First attempt with validation using gltf::Gltf::from_slice, then without if it fails
-        let (gltf, buffers, _images): (gltf::Document, Vec<gltf::buffer::Data>, Vec<gltf::image::Data>) = match gltf::Gltf::from_slice(buffer) {
+        let (gltf, buffers, _images): (
+            gltf::Document,
+            Vec<gltf::buffer::Data>,
+            Vec<gltf::image::Data>,
+        ) = match gltf::Gltf::from_slice(buffer) {
             Ok(gltf) => {
                 // Successfully loaded with validation
                 let gltf_doc = gltf.document;
-                let gltf_buffers = gltf.blob.map(|blob| vec![gltf::buffer::Data(blob)]).unwrap_or_default();
+                let gltf_buffers = gltf
+                    .blob
+                    .map(|blob| vec![gltf::buffer::Data(blob)])
+                    .unwrap_or_default();
                 (gltf_doc, gltf_buffers, vec![])
             }
             Err(e) => {
@@ -455,27 +485,38 @@ impl GltfDecoder {
                     // Parse as GLB using the same method as load_file
                     let glb = gltf::Glb::from_slice(buffer)
                         .map_err(|glb_e| Err::IoError(format!("Failed to parse GLB: {}", glb_e)))?;
-                    
+
                     // Load without validation
-                    let gltf = gltf::Gltf::from_slice_without_validation(&glb.json)
-                        .map_err(|gltf_e| Err::IoError(format!("Failed to load glTF: {} (validation error: {})", gltf_e, e)))?;
-                    
+                    let gltf =
+                        gltf::Gltf::from_slice_without_validation(&glb.json).map_err(|gltf_e| {
+                            Err::IoError(format!(
+                                "Failed to load glTF: {} (validation error: {})",
+                                gltf_e, e
+                            ))
+                        })?;
+
                     // Parse extension attributes from the raw JSON
                     self.parse_extension_attributes_from_json(&glb.json)?;
-                    
-                    let buffers = glb.bin
+
+                    let buffers = glb
+                        .bin
                         .map(|data| vec![gltf::buffer::Data(data.to_vec())])
                         .unwrap_or_default();
-                    
+
                     (gltf.document, buffers, vec![])
                 } else {
                     // Parse as JSON glTF
-                    let gltf = gltf::Gltf::from_slice_without_validation(buffer)
-                        .map_err(|gltf_e| Err::IoError(format!("Failed to load glTF: {} (validation error: {})", gltf_e, e)))?;
-                    
+                    let gltf =
+                        gltf::Gltf::from_slice_without_validation(buffer).map_err(|gltf_e| {
+                            Err::IoError(format!(
+                                "Failed to load glTF: {} (validation error: {})",
+                                gltf_e, e
+                            ))
+                        })?;
+
                     // Parse extension attributes from the raw JSON
                     self.parse_extension_attributes_from_json(buffer)?;
-                    
+
                     // For JSON glTF from buffer, we can't import external buffers
                     // so we just use empty buffer list
                     (gltf.document, vec![], vec![])
@@ -491,10 +532,10 @@ impl GltfDecoder {
 
         // Check for unsupported features
         self.check_unsupported_features()?;
-        
+
         // Clear the input file name since we're loading from buffer
         self.input_file_name.clear();
-        
+
         Ok(())
     }
 
@@ -503,10 +544,10 @@ impl GltfDecoder {
         // Parse the JSON
         let json: serde_json::Value = serde_json::from_slice(json_data)
             .map_err(|e| Err::LoadError(format!("Failed to parse glTF JSON: {}", e)))?;
-        
+
         // Clear existing extension attributes
         self.extension_attributes.clear();
-        
+
         // Extract document-level extensions, especially EXT_structural_metadata
         if let Some(extensions) = json.get("extensions").and_then(|e| e.as_object()) {
             if let Some(structural_metadata) = extensions.get("EXT_structural_metadata") {
@@ -520,62 +561,77 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         // Get meshes array from JSON
         if let Some(meshes) = json.get("meshes").and_then(|m| m.as_array()) {
             for (_mesh_index, mesh) in meshes.iter().enumerate() {
                 let mut mesh_primitives = Vec::new();
-                
+
                 // Get primitives array for this mesh
                 if let Some(primitives) = mesh.get("primitives").and_then(|p| p.as_array()) {
                     for (_primitive_index, primitive) in primitives.iter().enumerate() {
                         let mut ext_attrs = ExtensionAttributes::default();
-                        
+
                         // Extract custom attributes (those starting with _)
-                        if let Some(attributes) = primitive.get("attributes").and_then(|a| a.as_object()) {
+                        if let Some(attributes) =
+                            primitive.get("attributes").and_then(|a| a.as_object())
+                        {
                             for (attr_name, accessor_index) in attributes {
                                 if attr_name.starts_with("_") {
                                     // This is a custom attribute, extract its accessor info
                                     if let Some(accessor_idx) = accessor_index.as_u64() {
-                                        if let Some(accessor_info) = self.extract_accessor_info(&json, accessor_idx as usize)? {
-                                            ext_attrs.attributes.insert(attr_name.clone(), accessor_info);
+                                        if let Some(accessor_info) = self
+                                            .extract_accessor_info(&json, accessor_idx as usize)?
+                                        {
+                                            ext_attrs
+                                                .attributes
+                                                .insert(attr_name.clone(), accessor_info);
                                         }
                                     }
                                 }
                             }
                         }
-                        
+
                         // Extract extensions for this primitive
-                        if let Some(extensions) = primitive.get("extensions").and_then(|e| e.as_object()) {
+                        if let Some(extensions) =
+                            primitive.get("extensions").and_then(|e| e.as_object())
+                        {
                             for (ext_name, ext_data) in extensions {
-                                ext_attrs.extensions.insert(ext_name.clone(), ext_data.clone());
+                                ext_attrs
+                                    .extensions
+                                    .insert(ext_name.clone(), ext_data.clone());
                             }
                         }
-                        
+
                         mesh_primitives.push(ext_attrs);
                     }
                 }
-                
+
                 self.extension_attributes.push(mesh_primitives);
             }
         }
-        
+
         Ok(())
     }
 
     /// Extract accessor information from JSON for a given accessor index
-    fn extract_accessor_info(&self, json: &serde_json::Value, accessor_index: usize) -> Result<Option<AccessorInfo>, Err> {
+    fn extract_accessor_info(
+        &self,
+        json: &serde_json::Value,
+        accessor_index: usize,
+    ) -> Result<Option<AccessorInfo>, Err> {
         // Get accessors array
-        let accessors = json.get("accessors")
+        let accessors = json
+            .get("accessors")
             .and_then(|a| a.as_array())
             .ok_or_else(|| Err::LoadError("No accessors found in glTF".to_string()))?;
-        
+
         if accessor_index >= accessors.len() {
             return Ok(None);
         }
-        
+
         let accessor = &accessors[accessor_index];
-        
+
         // Extract accessor properties
         // Note: bufferView might be missing for accessors that are part of Draco-compressed data
         let buffer_view_index = match accessor.get("bufferView").and_then(|bv| bv.as_u64()) {
@@ -586,27 +642,33 @@ impl GltfDecoder {
                 return Ok(None);
             }
         };
-        
-        let byte_offset = accessor.get("byteOffset")
+
+        let byte_offset = accessor
+            .get("byteOffset")
             .and_then(|bo| bo.as_u64())
             .unwrap_or(0) as usize;
-        
-        let component_type = accessor.get("componentType")
+
+        let component_type = accessor
+            .get("componentType")
             .and_then(|ct| ct.as_u64())
-            .ok_or_else(|| Err::LoadError("Accessor missing componentType".to_string()))? as u32;
-        
-        let count = accessor.get("count")
+            .ok_or_else(|| Err::LoadError("Accessor missing componentType".to_string()))?
+            as u32;
+
+        let count = accessor
+            .get("count")
             .and_then(|c| c.as_u64())
-            .ok_or_else(|| Err::LoadError("Accessor missing count".to_string()))? as usize;
-        
-        let data_type = accessor.get("type")
+            .ok_or_else(|| Err::LoadError("Accessor missing count".to_string()))?
+            as usize;
+
+        let data_type = accessor
+            .get("type")
             .and_then(|t| t.as_str())
             .ok_or_else(|| Err::LoadError("Accessor missing type".to_string()))?
             .to_string();
-        
+
         // Extract buffer view info
         let buffer_view_info = self.extract_buffer_view_info(json, buffer_view_index)?;
-        
+
         Ok(Some(AccessorInfo {
             buffer_view_index,
             byte_offset,
@@ -618,33 +680,44 @@ impl GltfDecoder {
     }
 
     /// Extract buffer view information from JSON
-    fn extract_buffer_view_info(&self, json: &serde_json::Value, buffer_view_index: usize) -> Result<BufferViewInfo, Err> {
-        let buffer_views = json.get("bufferViews")
+    fn extract_buffer_view_info(
+        &self,
+        json: &serde_json::Value,
+        buffer_view_index: usize,
+    ) -> Result<BufferViewInfo, Err> {
+        let buffer_views = json
+            .get("bufferViews")
             .and_then(|bv| bv.as_array())
             .ok_or_else(|| Err::LoadError("No bufferViews found in glTF".to_string()))?;
-        
+
         if buffer_view_index >= buffer_views.len() {
             return Err(Err::LoadError("BufferView index out of range".to_string()));
         }
-        
+
         let buffer_view = &buffer_views[buffer_view_index];
-        
-        let buffer = buffer_view.get("buffer")
+
+        let buffer = buffer_view
+            .get("buffer")
             .and_then(|b| b.as_u64())
-            .ok_or_else(|| Err::LoadError("BufferView missing buffer".to_string()))? as usize;
-        
-        let byte_offset = buffer_view.get("byteOffset")
+            .ok_or_else(|| Err::LoadError("BufferView missing buffer".to_string()))?
+            as usize;
+
+        let byte_offset = buffer_view
+            .get("byteOffset")
             .and_then(|bo| bo.as_u64())
             .unwrap_or(0) as usize;
-        
-        let byte_length = buffer_view.get("byteLength")
+
+        let byte_length = buffer_view
+            .get("byteLength")
             .and_then(|bl| bl.as_u64())
-            .ok_or_else(|| Err::LoadError("BufferView missing byteLength".to_string()))? as usize;
-        
-        let byte_stride = buffer_view.get("byteStride")
+            .ok_or_else(|| Err::LoadError("BufferView missing byteLength".to_string()))?
+            as usize;
+
+        let byte_stride = buffer_view
+            .get("byteStride")
             .and_then(|bs| bs.as_u64())
             .map(|bs| bs as usize);
-        
+
         Ok(BufferViewInfo {
             buffer,
             byte_offset,
@@ -657,14 +730,15 @@ impl GltfDecoder {
     fn build_mesh(&mut self) -> Result<Mesh, Err> {
         // Gather statistics about attributes and materials
         self.gather_attribute_and_material_stats()?;
-        
+
         // Add extension attributes to mesh_attribute_data
         self.add_extension_attributes_to_stats()?;
-        
+
         // Check for mixed primitive types (triangles and points)
         if self.total_face_indices_count > 0 && self.total_point_indices_count > 0 {
             return Err(Err::LoadError(
-                "Decoding to mesh can't handle triangle and point primitives at the same time.".to_string()
+                "Decoding to mesh can't handle triangle and point primitives at the same time."
+                    .to_string(),
             ));
         }
 
@@ -687,13 +761,13 @@ impl GltfDecoder {
             let parent_matrix = Matrix4d::identity();
             // Take ownership temporarily to avoid borrow checker issues
             let gltf_model = self.gltf_model.take().unwrap();
-            
+
             for scene in gltf_model.scenes() {
                 for node in scene.nodes() {
                     self.decode_node(&node, &parent_matrix)?;
                 }
             }
-            
+
             // Put it back
             self.gltf_model = Some(gltf_model);
         } else {
@@ -723,14 +797,16 @@ impl GltfDecoder {
         Ok(())
     }
 
-
     /// Add attributes to triangle mesh builder
     fn add_attributes_to_draco_mesh_triangle(&mut self) -> Result<(), Err> {
         let mut curr_att_id = 0;
         for att in &mut self.mesh_attribute_data {
             let draco_att_type = AttributeType::Invalid; // Simplified - was gltf_attribute_to_draco_attribute(att.0);
             if draco_att_type == AttributeType::Invalid {
-                *self.attribute_name_to_draco_mesh_attribute_id.get_mut(att.0).unwrap() = -1;
+                *self
+                    .attribute_name_to_draco_mesh_attribute_id
+                    .get_mut(att.0)
+                    .unwrap() = -1;
                 continue;
             }
             self.mb.as_mut().unwrap().add_gltf_empty_attribute(
@@ -739,7 +815,10 @@ impl GltfDecoder {
                 att.1.component_type,
                 att.1.data_type,
             );
-            *self.attribute_name_to_draco_mesh_attribute_id.get_mut(att.0).unwrap() = curr_att_id as i32;
+            *self
+                .attribute_name_to_draco_mesh_attribute_id
+                .get_mut(att.0)
+                .unwrap() = curr_att_id as i32;
             curr_att_id += 1;
         }
 
@@ -753,8 +832,8 @@ impl GltfDecoder {
             }
             self.material_att_id = curr_att_id as i32;
             self.mb.as_mut().unwrap().add_empty_attribute(
-                AttributeType::Material, 
-                AttributeDomain::Position, 
+                AttributeType::Material,
+                AttributeDomain::Position,
                 component_type,
                 1,
             );
@@ -785,14 +864,20 @@ impl GltfDecoder {
             // Check for sparse accessors.
             for accessor in gltf_model.accessors() {
                 if accessor.sparse().is_some() {
-                    return Err(Err::LoadError("Sparse accessors are unsupported.".to_string()));
+                    return Err(Err::LoadError(
+                        "Sparse accessors are unsupported.".to_string(),
+                    ));
                 }
             }
 
             // Check for required extensions.
             for extension in gltf_model.extensions_required() {
                 match extension {
-                    "KHR_materials_unlit" | "KHR_texture_transform" | "KHR_draco_mesh_compression" | "EXT_mesh_features" | "EXT_texture_webp" => {
+                    "KHR_materials_unlit"
+                    | "KHR_texture_transform"
+                    | "KHR_draco_mesh_compression"
+                    | "EXT_mesh_features"
+                    | "EXT_texture_webp" => {
                         // These extensions are supported
                     }
                     _ => {
@@ -811,8 +896,7 @@ impl GltfDecoder {
     /// it will process all of the mesh's primitives.
     fn decode_node(&mut self, node: &gltf::Node, parent_matrix: &Matrix4d) -> Result<(), Err> {
         let trsm: TrsMatrix = Self::get_node_transformation_matrix(&node);
-        let node_matrix: Matrix4d =
-            parent_matrix.clone() * trsm.compute_transformation_matrix();
+        let node_matrix: Matrix4d = parent_matrix.clone() * trsm.compute_transformation_matrix();
 
         if let Some(mesh) = node.mesh() {
             let mesh_index = mesh.index();
@@ -843,7 +927,7 @@ impl GltfDecoder {
                 return Ok(texcoords.count() as i32);
             }
         }
-        
+
         // If no standard attributes found, try the iterator approach (might panic)
         let mut attributes = primitive.attributes();
         if let Some((_, accessor)) = attributes.next() {
@@ -858,19 +942,21 @@ impl GltfDecoder {
     /// count of a primitive attribute.
     fn decode_primitive_indices(&self, primitive: &Primitive) -> Result<Vec<u32>, Err> {
         let mut indices_data = Vec::new();
-        
+
         match primitive.indices() {
             Some(indices_accessor) => {
                 // Get indices from the primitive's indices property.
                 if indices_accessor.count() == 0 {
                     return Err(Err::LoadError("Could not convert indices.".to_string()));
                 }
-                
-                // Copy data as u32 from the accessor  
+
+                // Copy data as u32 from the accessor
                 if let Some(ref buffers) = self.buffers {
                     indices_data = copy_data_as_uint32(&indices_accessor, buffers)?;
                 } else {
-                    return Err(Err::LoadError("No buffers available for index data".to_string()));
+                    return Err(Err::LoadError(
+                        "No buffers available for index data".to_string(),
+                    ));
                 }
             }
             None => {
@@ -883,30 +969,37 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         Ok(indices_data)
     }
 
     /// Decodes a glTF Primitive. All of the primitive's attributes will be
     /// merged into the draco::Mesh output if they are of the same type that
     /// already has been decoded.
-    fn decode_primitive(&mut self, primitive: &Primitive, transform_matrix: &Matrix4d, mesh_index: usize, primitive_index: usize) -> Result<(), Err> {
+    fn decode_primitive(
+        &mut self,
+        primitive: &Primitive,
+        transform_matrix: &Matrix4d,
+        mesh_index: usize,
+        primitive_index: usize,
+    ) -> Result<(), Err> {
         use gltf::mesh::Mode;
-        
+
         // Check primitive mode
         if primitive.mode() != Mode::Triangles && primitive.mode() != Mode::Points {
             return Err(Err::LoadError(
-                "Primitive does not contain triangles or points.".to_string()
+                "Primitive does not contain triangles or points.".to_string(),
             ));
         }
 
         // Store the transformation scale of this primitive loading as draco::Mesh.
         if self.scene.is_none() {
             // TODO: Do something for non-uniform scaling.
-            let scale = (transform_matrix.data[0][0].powi(2) + 
-                        transform_matrix.data[1][0].powi(2) + 
-                        transform_matrix.data[2][0].powi(2)).sqrt() as f32;
-            
+            let scale = (transform_matrix.data[0][0].powi(2)
+                + transform_matrix.data[1][0].powi(2)
+                + transform_matrix.data[2][0].powi(2))
+            .sqrt() as f32;
+
             let material_index = primitive.material().index().unwrap_or(0) as i32;
             self.gltf_primitive_material_to_scales
                 .entry(material_index)
@@ -922,7 +1015,7 @@ impl GltfDecoder {
         // Process standard attributes
         // Collect attributes safely to avoid panics on custom attributes
         let mut safe_attributes = Vec::new();
-        
+
         // Try standard semantics
         if let Some(positions) = primitive.get(&Semantic::Positions) {
             safe_attributes.push((Semantic::Positions, positions));
@@ -947,19 +1040,20 @@ impl GltfDecoder {
         if let Some(tangents) = primitive.get(&Semantic::Tangents) {
             safe_attributes.push((Semantic::Tangents, tangents));
         }
-        
+
         for (attribute_name, accessor) in safe_attributes {
-            let att_id = self.attribute_name_to_draco_mesh_attribute_id
+            let att_id = self
+                .attribute_name_to_draco_mesh_attribute_id
                 .get(attribute_name.to_string().as_str())
                 .cloned()
                 .unwrap_or(-1);
-            
+
             if att_id == -1 {
                 continue;
             }
 
             if primitive.mode() == Mode::Triangles {
-                // Add to triangle mesh builder  
+                // Add to triangle mesh builder
                 if self.mb.is_some() {
                     // We need to work around borrow checker issues by temporarily taking the builder
                     let mut mb = self.mb.take().unwrap();
@@ -993,35 +1087,40 @@ impl GltfDecoder {
         }
 
         // Process extension attributes that weren't included in primitive.attributes()
-        if mesh_index < self.extension_attributes.len() && primitive_index < self.extension_attributes[mesh_index].len() {
+        if mesh_index < self.extension_attributes.len()
+            && primitive_index < self.extension_attributes[mesh_index].len()
+        {
             let ext_attrs = self.extension_attributes[mesh_index][primitive_index].clone();
-            
+
             // Collect extension attribute processing data first to avoid borrow conflicts
             let mut ext_attr_data = Vec::new();
             for (attr_name, accessor_info) in &ext_attrs.attributes {
-                let att_id = self.attribute_name_to_draco_mesh_attribute_id
+                let att_id = self
+                    .attribute_name_to_draco_mesh_attribute_id
                     .get(attr_name)
                     .cloned()
                     .unwrap_or(-1);
-                
+
                 if att_id != -1 {
                     ext_attr_data.push((attr_name.clone(), accessor_info.clone(), att_id));
                 }
             }
-            
+
             // Process the collected extension attributes
             for (attr_name, accessor_info, _att_id) in ext_attr_data {
                 if primitive.mode() == Mode::Triangles {
                     if self.mb.is_some() {
                         // Extract data directly using stored accessor information
                         if let Some(ref buffers) = self.buffers {
-                            if let Ok(feature_data) = Self::extract_uint32_from_accessor_info(&accessor_info, buffers) {
+                            if let Ok(feature_data) =
+                                Self::extract_uint32_from_accessor_info(&accessor_info, buffers)
+                            {
                                 // Convert to NdVector<1> for scalar values
                                 let feature_data_vectors: Vec<_> = feature_data
                                     .into_iter()
                                     .map(|val| NdVector::from([val]))
                                     .collect();
-                                
+
                                 // Add as Custom attribute to the mesh builder
                                 let mut mb = self.mb.take().unwrap();
                                 let attribute_id = mb.add_attribute(
@@ -1030,17 +1129,19 @@ impl GltfDecoder {
                                     AttributeDomain::Corner,
                                     vec![],
                                 );
-                                
+
                                 // Set the attribute name so it can be used during encoding
                                 if let Some(attribute) = mb.attributes.last_mut() {
                                     attribute.set_name(attr_name.to_string());
                                 }
                                 self.mb = Some(mb);
-                                
+
                                 // Map extension attribute indices for later use in mesh features
-                                if let Some(feature_id_str) = attr_name.strip_prefix("_FEATURE_ID_") {
+                                if let Some(feature_id_str) = attr_name.strip_prefix("_FEATURE_ID_")
+                                {
                                     if let Ok(feature_id) = feature_id_str.parse::<i32>() {
-                                        self.feature_id_attribute_indices.insert(feature_id, attribute_id.as_usize() as i32);
+                                        self.feature_id_attribute_indices
+                                            .insert(feature_id, attribute_id.as_usize() as i32);
                                     }
                                 }
                             }
@@ -1053,11 +1154,18 @@ impl GltfDecoder {
         // Add the material data only if there is more than one material.
         if self.gltf_primitive_material_to_draco_material.len() > 1 {
             let material_index = primitive.material().index().unwrap_or(0) as i32;
-            if let Some(&draco_material_index) = self.gltf_primitive_material_to_draco_material.get(&material_index) {
+            if let Some(&draco_material_index) = self
+                .gltf_primitive_material_to_draco_material
+                .get(&material_index)
+            {
                 if primitive.mode() == Mode::Triangles {
                     if self.mb.is_some() {
                         let mut mb = self.mb.take().unwrap();
-                        let result = self.add_material_data_to_builder(draco_material_index, number_of_faces, &mut mb);
+                        let result = self.add_material_data_to_builder(
+                            draco_material_index,
+                            number_of_faces,
+                            &mut mb,
+                        );
                         self.mb = Some(mb);
                         result?;
                     }
@@ -1075,17 +1183,25 @@ impl GltfDecoder {
 
         self.next_face_id += number_of_faces;
         self.next_point_id += number_of_points;
-        
+
         Ok(())
     }
 
     /// gltf::Node version of node_gather_attribute_and_material_stats
-    fn node_gather_attribute_and_material_stats_gltf(&mut self, scene_idx: usize, node_idx: usize) -> Result<(), Err> {
+    fn node_gather_attribute_and_material_stats_gltf(
+        &mut self,
+        scene_idx: usize,
+        node_idx: usize,
+    ) -> Result<(), Err> {
         // Collect primitive data first to avoid borrow checker issues
         let mut primitives_to_process = Vec::new();
-        
+
         if let Some(ref gltf_model) = self.gltf_model {
-            if let Some(node) = gltf_model.scenes().nth(scene_idx).and_then(|scene| scene.nodes().nth(node_idx)) {
+            if let Some(node) = gltf_model
+                .scenes()
+                .nth(scene_idx)
+                .and_then(|scene| scene.nodes().nth(node_idx))
+            {
                 if let Some(mesh) = node.mesh() {
                     for primitive in mesh.primitives() {
                         primitives_to_process.push(primitive);
@@ -1093,20 +1209,25 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         // Process collected primitives
         for primitive in primitives_to_process {
             // self.accumulate_primitive_stats_gltf(&primitive)?;
 
             let material_index = primitive.material().index().unwrap_or(0) as i32;
-            if !self.gltf_primitive_material_to_draco_material.contains_key(&material_index) {
-                let draco_material_index = self.gltf_primitive_material_to_draco_material.len() as i32;
-                self.gltf_primitive_material_to_draco_material.insert(material_index, draco_material_index);
+            if !self
+                .gltf_primitive_material_to_draco_material
+                .contains_key(&material_index)
+            {
+                let draco_material_index =
+                    self.gltf_primitive_material_to_draco_material.len() as i32;
+                self.gltf_primitive_material_to_draco_material
+                    .insert(material_index, draco_material_index);
             }
         }
 
         // TODO: Handle child nodes recursively
-        
+
         Ok(())
     }
 
@@ -1114,7 +1235,7 @@ impl GltfDecoder {
     fn add_extension_attributes_to_stats(&mut self) -> Result<(), Err> {
         // Collect extension attribute data first to avoid borrow conflicts
         let mut ext_attr_info = Vec::new();
-        
+
         // Extract extension attributes and corresponding accessor info
         for (_mesh_index, mesh_ext_attrs) in self.extension_attributes.iter().enumerate() {
             for (_primitive_index, ext_attrs) in mesh_ext_attrs.iter().enumerate() {
@@ -1131,7 +1252,7 @@ impl GltfDecoder {
                             5126 => 6, // GL_FLOAT
                             _ => 6,    // Default to float
                         };
-                        
+
                         let data_type = match accessor_info.data_type.as_str() {
                             "SCALAR" => 1,
                             "VEC2" => 2,
@@ -1142,29 +1263,41 @@ impl GltfDecoder {
                             "MAT4" => 16,
                             _ => 1, // Default to scalar
                         };
-                        
-                        ext_attr_info.push((attr_name.clone(), component_type, data_type, false, accessor_info.count as i32, accessor_info.buffer_view_index));
+
+                        ext_attr_info.push((
+                            attr_name.clone(),
+                            component_type,
+                            data_type,
+                            false,
+                            accessor_info.count as i32,
+                            accessor_info.buffer_view_index,
+                        ));
                     }
                 }
             }
         }
-        
+
         // Now process the collected data without holding any references
-        for (attr_name, component_type, data_type, normalized, count, _buffer_view_index) in ext_attr_info {
+        for (attr_name, component_type, data_type, normalized, count, _buffer_view_index) in
+            ext_attr_info
+        {
             // Add to mesh_attribute_data using check_types which handles first-time registration
             self.check_types(&attr_name, component_type, data_type, normalized)?;
-            
+
             // Sum the attribute counts
             self.sum_attribute_stats(&attr_name, count);
         }
-        
+
         Ok(())
     }
 
     /// Sums the number of elements per attribute for all of the meshes and primitives.
     fn gather_attribute_and_material_stats(&mut self) -> Result<(), Err> {
         if let Some(ref gltf_model) = self.gltf_model {
-            let num_scenes = gltf_model.scenes().map(|s| s.nodes().len()).collect::<Vec<_>>();
+            let num_scenes = gltf_model
+                .scenes()
+                .map(|s| s.nodes().len())
+                .collect::<Vec<_>>();
             for si in 0..gltf_model.scenes().len() {
                 let n_scenes = num_scenes[si];
                 for ni in 0..n_scenes {
@@ -1187,10 +1320,18 @@ impl GltfDecoder {
 
     /// Checks that all the same glTF attribute types in different meshes and
     /// primitives contain the same characteristics.
-    fn check_types(&mut self, attribute_name: &str, component_type: i32, type_: i32, normalized: bool) -> Result<(), Err> {
+    fn check_types(
+        &mut self,
+        attribute_name: &str,
+        component_type: i32,
+        type_: i32,
+        normalized: bool,
+    ) -> Result<(), Err> {
         if let Some(mad) = self.mesh_attribute_data.get(attribute_name) {
             // Allow different component types for feature ID attributes since they can vary per primitive
-            if mad.component_type as i32 != component_type && !attribute_name.starts_with("_FEATURE_ID_") {
+            if mad.component_type as i32 != component_type
+                && !attribute_name.starts_with("_FEATURE_ID_")
+            {
                 return Err(Err::LoadError(format!(
                     "{} attribute component type does not match previous.",
                     attribute_name
@@ -1234,9 +1375,11 @@ impl GltfDecoder {
                 normalized,
                 total_attribute_counts: 0,
             };
-            self.mesh_attribute_data.insert(attribute_name.to_string(), mad);
+            self.mesh_attribute_data
+                .insert(attribute_name.to_string(), mad);
             // Initialize the attribute ID mapping with -1 (will be updated later)
-            self.attribute_name_to_draco_mesh_attribute_id.insert(attribute_name.to_string(), -1);
+            self.attribute_name_to_draco_mesh_attribute_id
+                .insert(attribute_name.to_string(), -1);
         }
         Ok(())
     }
@@ -1254,11 +1397,17 @@ impl GltfDecoder {
         builder: &mut MeshBuilder,
     ) -> Result<(), Err> {
         // Calculate determinant to check for reverse winding
-        let determinant = transform_matrix[0][0] * (transform_matrix[1][1] * transform_matrix[2][2] - transform_matrix[1][2] * transform_matrix[2][1])
-                        - transform_matrix[0][1] * (transform_matrix[1][0] * transform_matrix[2][2] - transform_matrix[1][2] * transform_matrix[2][0])
-                        + transform_matrix[0][2] * (transform_matrix[1][0] * transform_matrix[2][1] - transform_matrix[1][1] * transform_matrix[2][0]);
+        let determinant = transform_matrix[0][0]
+            * (transform_matrix[1][1] * transform_matrix[2][2]
+                - transform_matrix[1][2] * transform_matrix[2][1])
+            - transform_matrix[0][1]
+                * (transform_matrix[1][0] * transform_matrix[2][2]
+                    - transform_matrix[1][2] * transform_matrix[2][0])
+            + transform_matrix[0][2]
+                * (transform_matrix[1][0] * transform_matrix[2][1]
+                    - transform_matrix[1][1] * transform_matrix[2][0]);
         let reverse_winding = determinant < 0.0;
-        
+
         match attribute_name {
             "TEXCOORD_0" | "TEXCOORD_1" => {
                 self.add_tex_coord_to_builder(
@@ -1285,7 +1434,7 @@ impl GltfDecoder {
             "POSITION" | "NORMAL" => {
                 let normalize = attribute_name == "NORMAL";
                 self.add_transformed_data_to_builder(
-                    &(), // TODO: Use proper accessor  
+                    &(), // TODO: Use proper accessor
                     indices_data,
                     att_id,
                     number_of_elements,
@@ -1296,11 +1445,7 @@ impl GltfDecoder {
                 )
             }
             name if name.starts_with("_FEATURE_ID_") => {
-                self.add_feature_id_to_builder(
-                    accessor,
-                    attribute_name,
-                    builder,
-                )
+                self.add_feature_id_to_builder(accessor, attribute_name, builder)
             }
             name if name.starts_with('_') => {
                 // Structural metadata property attribute
@@ -1374,7 +1519,7 @@ impl GltfDecoder {
                     .into_iter()
                     .map(|val| NdVector::from([val]))
                     .collect();
-                
+
                 // Add as Custom attribute to the mesh builder
                 let attribute_id = builder.add_attribute(
                     feature_data_vectors,
@@ -1382,23 +1527,27 @@ impl GltfDecoder {
                     AttributeDomain::Corner,
                     vec![],
                 );
-                
+
                 // Set the attribute name so it can be used during encoding
                 if let Some(attribute) = builder.attributes.last_mut() {
                     attribute.set_name(attribute_name.to_string());
                 }
-                
+
                 // Map extension attribute indices for later use in mesh features
                 if let Some(feature_id_str) = attribute_name.strip_prefix("_FEATURE_ID_") {
                     if let Ok(feature_id) = feature_id_str.parse::<i32>() {
-                        self.feature_id_attribute_indices.insert(feature_id, attribute_id.as_usize() as i32);
+                        self.feature_id_attribute_indices
+                            .insert(feature_id, attribute_id.as_usize() as i32);
                     }
                 }
                 return Ok(());
             }
         }
-        
-        Err(Err::LoadError(format!("Failed to extract feature ID data for {}", attribute_name)))
+
+        Err(Err::LoadError(format!(
+            "Failed to extract feature ID data for {}",
+            attribute_name
+        )))
     }
 
     /// Copies the property attribute data from accessor and adds it to a Draco mesh.
@@ -1432,7 +1581,6 @@ impl GltfDecoder {
         unimplemented!()
     }
 
-
     /// Adds the attribute data in accessor to builder for unique attribute att_id.
     fn add_attribute_data_by_types(
         &mut self,
@@ -1452,16 +1600,16 @@ impl GltfDecoder {
             for (i, image) in gltf_model.images().enumerate() {
                 // Create a new texture
                 let mut texture = crate::core::texture::Texture::new();
-                
+
                 // Update mapping between glTF images and textures in the texture library.
                 self.gltf_image_to_draco_texture.insert(i as i32, ());
-                
+
                 // Get source image from glTF image
                 let source_image = self.get_source_image(gltf_model, &image)?;
-                
+
                 // Set the source image on the texture
                 texture.set_source_image(source_image);
-                
+
                 // Add texture to the material library
                 let texture_library = owner.get_material_library_mut().get_texture_library_mut();
                 texture_library.push(texture);
@@ -1471,9 +1619,13 @@ impl GltfDecoder {
     }
 
     /// Creates a SourceImage from a glTF image, handling both embedded and external image files.
-    fn get_source_image(&self, _gltf_model: &gltf::Document, image: &gltf::Image) -> Result<crate::core::texture::Image, Err> {
+    fn get_source_image(
+        &self,
+        _gltf_model: &gltf::Document,
+        image: &gltf::Image,
+    ) -> Result<crate::core::texture::Image, Err> {
         let mut source_image = crate::core::texture::Image::new();
-        
+
         // Check if the image is embedded in a buffer view or is an external file
         if let Some(source) = Some(image.source()) {
             match source {
@@ -1490,27 +1642,34 @@ impl GltfDecoder {
                         if let Some(comma_pos) = uri.find(',') {
                             let data_part = &uri[comma_pos + 1..];
                             use base64::Engine;
-                            if let Ok(decoded_data) = base64::engine::general_purpose::STANDARD.decode(data_part) {
+                            if let Ok(decoded_data) =
+                                base64::engine::general_purpose::STANDARD.decode(data_part)
+                            {
                                 *source_image.get_encoded_data_mut() = decoded_data;
                                 if let Some(mime_type) = mime_type {
                                     source_image.set_mime_type(mime_type.to_string());
                                 }
                             } else {
-                                return Err(Err::InvalidInput("Failed to decode base64 data URI".to_string()));
+                                return Err(Err::InvalidInput(
+                                    "Failed to decode base64 data URI".to_string(),
+                                ));
                             }
                         }
                     } else {
                         // External file URI - resolve path relative to glTF file
                         let absolute_path = self.resolve_image_path(uri)?;
-                        
+
                         // Load the image file
                         let image_data = std::fs::read(&absolute_path).map_err(|e| {
-                            Err::IoError(format!("Failed to read image file {}: {}", absolute_path, e))
+                            Err::IoError(format!(
+                                "Failed to read image file {}: {}",
+                                absolute_path, e
+                            ))
                         })?;
-                        
+
                         *source_image.get_encoded_data_mut() = image_data;
                         source_image.set_filename(absolute_path);
-                        
+
                         // Set MIME type based on file extension if not provided
                         let mime_type = mime_type.unwrap_or_else(|| {
                             let extension = std::path::Path::new(uri)
@@ -1519,7 +1678,7 @@ impl GltfDecoder {
                                 .unwrap_or("");
                             match extension.to_lowercase().as_str() {
                                 "png" => "image/png",
-                                "jpg" | "jpeg" => "image/jpeg", 
+                                "jpg" | "jpeg" => "image/jpeg",
                                 "webp" => "image/webp",
                                 "ktx2" => "image/ktx2",
                                 _ => "application/octet-stream",
@@ -1530,7 +1689,7 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         Ok(source_image)
     }
 
@@ -1547,24 +1706,31 @@ impl GltfDecoder {
 
     /// Copies data from a glTF buffer view to a Vec<u8>.
     fn copy_data_from_buffer_view(&self, view: &gltf::buffer::View) -> Result<Vec<u8>, Err> {
-        let buffer_data = self.buffers.as_ref()
+        let buffer_data = self
+            .buffers
+            .as_ref()
             .and_then(|buffers| buffers.get(view.buffer().index()))
             .ok_or_else(|| Err::InvalidInput("Buffer not found for buffer view".to_string()))?;
-        
+
         let start = view.offset();
         let end = start + view.length();
-        
+
         if end > buffer_data.len() {
-            return Err(Err::InvalidInput("Buffer view extends beyond buffer data".to_string()));
+            return Err(Err::InvalidInput(
+                "Buffer view extends beyond buffer data".to_string(),
+            ));
         }
-        
+
         Ok(buffer_data[start..end].to_vec())
     }
 
     /// Sets extra attribute properties on a constructed draco mesh.
     fn set_attribute_properties_on_draco_mesh(&self, _mesh: &mut Mesh) {
         for (attribute_name, mad) in &self.mesh_attribute_data {
-            if let Some(&att_id) = self.attribute_name_to_draco_mesh_attribute_id.get(attribute_name) {
+            if let Some(&att_id) = self
+                .attribute_name_to_draco_mesh_attribute_id
+                .get(attribute_name)
+            {
                 if att_id == -1 {
                     continue;
                 }
@@ -1581,14 +1747,20 @@ impl GltfDecoder {
     fn add_materials_to_draco_mesh(&mut self, _mesh: &mut Mesh) -> Result<(), Err> {
         if let Some(ref gltf_model) = self.gltf_model {
             // Find default material index if it exists
-            let _default_material_index = self.gltf_primitive_material_to_draco_material.get(&-1).copied();
-            
+            let _default_material_index = self
+                .gltf_primitive_material_to_draco_material
+                .get(&-1)
+                .copied();
+
             // Process each material in the glTF model
             for (input_material_index, _material) in gltf_model.materials().enumerate() {
                 let input_material_index = input_material_index as i32;
-                
+
                 // Check if this material is actually used
-                if let Some(&output_material_index) = self.gltf_primitive_material_to_draco_material.get(&input_material_index) {
+                if let Some(&output_material_index) = self
+                    .gltf_primitive_material_to_draco_material
+                    .get(&input_material_index)
+                {
                     // For now, just create a basic material entry
                     // In a full implementation, we would:
                     // 1. Create a Material in the mesh's material library
@@ -1602,23 +1774,45 @@ impl GltfDecoder {
     }
 
     /// Adds the material data for the GeometryAttribute::MATERIAL attribute to the Draco mesh.
-    fn add_material_data_to_builder(&mut self, material_value: i32, number_of_elements: i32, builder: &mut MeshBuilder) -> Result<(), Err> {
+    fn add_material_data_to_builder(
+        &mut self,
+        material_value: i32,
+        number_of_elements: i32,
+        builder: &mut MeshBuilder,
+    ) -> Result<(), Err> {
         let num_materials = self.gltf_primitive_material_to_draco_material.len();
-        
+
         if num_materials < 256 {
             let typed_material_value = material_value as u8;
-            self.add_material_data_to_triangle_builder_internal(typed_material_value, number_of_elements, builder)
+            self.add_material_data_to_triangle_builder_internal(
+                typed_material_value,
+                number_of_elements,
+                builder,
+            )
         } else if num_materials < (1 << 16) {
             let typed_material_value = material_value as u16;
-            self.add_material_data_to_triangle_builder_internal(typed_material_value, number_of_elements, builder)
+            self.add_material_data_to_triangle_builder_internal(
+                typed_material_value,
+                number_of_elements,
+                builder,
+            )
         } else {
             let typed_material_value = material_value as u32;
-            self.add_material_data_to_triangle_builder_internal(typed_material_value, number_of_elements, builder)
+            self.add_material_data_to_triangle_builder_internal(
+                typed_material_value,
+                number_of_elements,
+                builder,
+            )
         }
     }
 
     /// Adds the material data for the GeometryAttribute::MATERIAL attribute to the triangle builder.
-    fn add_material_data_to_triangle_builder_internal<T>(&mut self, material_value: T, number_of_faces: i32, builder: &mut MeshBuilder) -> Result<(), Err> {
+    fn add_material_data_to_triangle_builder_internal<T>(
+        &mut self,
+        material_value: T,
+        number_of_faces: i32,
+        builder: &mut MeshBuilder,
+    ) -> Result<(), Err> {
         // For now, we'll provide a basic implementation
         // In a full implementation, this would add material data for each face/vertex
         let _ = (material_value, number_of_faces, builder);
@@ -1629,10 +1823,10 @@ impl GltfDecoder {
     fn decode_gltf_to_scene(&mut self, scene: &mut Scene) -> Result<(), Err> {
         // Store the scene reference for use by other methods
         // Note: We can't store a mutable reference in self, so we'll pass it through method calls
-        
+
         // Gather statistics about attributes and materials
         self.gather_attribute_and_material_stats()?;
-        
+
         // Add extension attributes to mesh_attribute_data
         self.add_extension_attributes_to_stats()?;
 
@@ -1644,16 +1838,18 @@ impl GltfDecoder {
 
         // Add structural metadata to the scene
         self.add_structural_metadata_to_scene(scene)?;
-        
+
         // Add mesh features to the scene
         self.add_mesh_features_to_scene(scene)?;
-        
+
         // Add property table buffer data to the scene for preservation during encoding
         self.add_property_table_buffer_data_to_scene(scene)?;
-        
+
         // Add WebP information to the scene metadata for restoration during encoding
         if let Some(ref webp_info) = self.webp_info {
-            scene.metadata_mut().add_entry("webp_info".to_string(), webp_info.clone());
+            scene
+                .metadata_mut()
+                .add_entry("webp_info".to_string(), webp_info.clone());
         }
 
         // Copy textures to the scene
@@ -1691,7 +1887,13 @@ impl GltfDecoder {
     /// Decode extensions on all primitives of all scenes and add their contents to mesh.
     fn add_primitive_extensions_to_draco_mesh(&mut self, mesh: &mut Mesh) -> Result<(), Err> {
         for scene in 0..self.gltf_model.as_ref().unwrap().scenes().len() {
-            let scene = self.gltf_model.as_ref().unwrap().scenes().nth(scene).unwrap();
+            let scene = self
+                .gltf_model
+                .as_ref()
+                .unwrap()
+                .scenes()
+                .nth(scene)
+                .unwrap();
             for i in 0..scene.nodes().len() {
                 self.add_primitive_extensions_to_draco_mesh_for_node(i as i32, mesh)?;
             }
@@ -1700,7 +1902,11 @@ impl GltfDecoder {
     }
 
     /// Decode extensions on all primitives of all scenes and add their contents to mesh.
-    fn add_primitive_extensions_to_draco_mesh_for_node(&mut self, node_index: i32, mesh: &mut Mesh) -> Result<(), Err> {
+    fn add_primitive_extensions_to_draco_mesh_for_node(
+        &mut self,
+        node_index: i32,
+        mesh: &mut Mesh,
+    ) -> Result<(), Err> {
         let gltf_model = self.gltf_model.clone();
         let node = gltf_model
             .as_ref()
@@ -1729,20 +1935,33 @@ impl GltfDecoder {
     }
 
     /// Decode extensions on primitive and add their contents to mesh.
-    fn add_primitive_extensions_to_draco_mesh_for_primitive(&mut self, _primitive: &Primitive, mesh: &mut Mesh, mesh_index: usize, primitive_index: usize) -> Result<(), Err> {
+    fn add_primitive_extensions_to_draco_mesh_for_primitive(
+        &mut self,
+        _primitive: &Primitive,
+        mesh: &mut Mesh,
+        mesh_index: usize,
+        primitive_index: usize,
+    ) -> Result<(), Err> {
         // Use extension attributes from our parsed JSON instead of relying on gltf crate
-        if mesh_index < self.extension_attributes.len() && primitive_index < self.extension_attributes[mesh_index].len() {
+        if mesh_index < self.extension_attributes.len()
+            && primitive_index < self.extension_attributes[mesh_index].len()
+        {
             // Clone the extension data to avoid borrowing conflicts
             let ext_attrs = self.extension_attributes[mesh_index][primitive_index].clone();
-            
+
             // Decode mesh feature ID sets if present
             if let Some(mesh_features_ext) = ext_attrs.extensions.get("EXT_mesh_features") {
                 self.decode_mesh_features_from_extension_attrs(mesh_features_ext, mesh)?;
             }
 
             // Decode structural metadata if present
-            if let Some(structural_metadata_ext) = ext_attrs.extensions.get("EXT_structural_metadata") {
-                self.decode_structural_metadata_from_extension_attrs(structural_metadata_ext, mesh)?;
+            if let Some(structural_metadata_ext) =
+                ext_attrs.extensions.get("EXT_structural_metadata")
+            {
+                self.decode_structural_metadata_from_extension_attrs(
+                    structural_metadata_ext,
+                    mesh,
+                )?;
             }
         }
 
@@ -1760,77 +1979,106 @@ impl GltfDecoder {
     /// Adds property table buffer data to the scene for preservation during encoding.
     fn add_property_table_buffer_data_to_scene(&mut self, scene: &mut Scene) -> Result<(), Err> {
         // Only process if we have buffers and a glTF model
-        if let (Some(gltf_model), Some(buffers)) = (self.gltf_model.as_ref(), self.buffers.as_ref()) {
+        if let (Some(gltf_model), Some(buffers)) = (self.gltf_model.as_ref(), self.buffers.as_ref())
+        {
             // Extract buffer views information
             let mut buffer_views_json = Vec::new();
             let mut property_buffer_data = Vec::new();
-            
+
             // Check if we have property tables in the structural metadata
             if let Some(ref structural_metadata) = self.temp_document_structural_metadata {
-                if let Some(property_tables) = structural_metadata.get("propertyTables").and_then(|pt| pt.as_array()) {
+                if let Some(property_tables) = structural_metadata
+                    .get("propertyTables")
+                    .and_then(|pt| pt.as_array())
+                {
                     if !property_tables.is_empty() {
                         // We have property tables, so we need to preserve the buffer data
-                        
+
                         // Collect all buffer views
                         for buffer_view in gltf_model.views() {
                             let mut bv_json = serde_json::Map::new();
-                            bv_json.insert("buffer".to_string(), serde_json::Value::Number(buffer_view.buffer().index().into()));
-                            bv_json.insert("byteOffset".to_string(), serde_json::Value::Number(buffer_view.offset().into()));
-                            bv_json.insert("byteLength".to_string(), serde_json::Value::Number(buffer_view.length().into()));
-                            
+                            bv_json.insert(
+                                "buffer".to_string(),
+                                serde_json::Value::Number(buffer_view.buffer().index().into()),
+                            );
+                            bv_json.insert(
+                                "byteOffset".to_string(),
+                                serde_json::Value::Number(buffer_view.offset().into()),
+                            );
+                            bv_json.insert(
+                                "byteLength".to_string(),
+                                serde_json::Value::Number(buffer_view.length().into()),
+                            );
+
                             if let Some(stride) = buffer_view.stride() {
-                                bv_json.insert("byteStride".to_string(), serde_json::Value::Number(stride.into()));
+                                bv_json.insert(
+                                    "byteStride".to_string(),
+                                    serde_json::Value::Number(stride.into()),
+                                );
                             }
-                            
+
                             if let Some(target) = buffer_view.target() {
-                                bv_json.insert("target".to_string(), serde_json::Value::Number((target as u32).into()));
+                                bv_json.insert(
+                                    "target".to_string(),
+                                    serde_json::Value::Number((target as u32).into()),
+                                );
                             }
-                            
+
                             // Store name if available (from JSON)
                             if let Some(name) = buffer_view.name() {
-                                bv_json.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                                bv_json.insert(
+                                    "name".to_string(),
+                                    serde_json::Value::String(name.to_string()),
+                                );
                             }
-                            
+
                             buffer_views_json.push(serde_json::Value::Object(bv_json));
-                            
+
                             // We'll extract all buffer data later in a second pass
                         }
-                        
+
                         // Now extract the property buffer data from the correct offsets
                         // Find the min and max offsets for property data (excluding buffer view 0)
                         let mut min_offset = usize::MAX;
                         let mut max_end = 0;
-                        
+
                         for (index, buffer_view) in gltf_model.views().enumerate() {
-                            if index > 0 {  // Skip buffer view 0 (mesh data)
+                            if index > 0 {
+                                // Skip buffer view 0 (mesh data)
                                 let start = buffer_view.offset();
                                 let end = start + buffer_view.length();
                                 min_offset = min_offset.min(start);
                                 max_end = max_end.max(end);
                             }
                         }
-                        
+
                         // Extract the property data from the buffer
                         if min_offset < max_end && !buffers.is_empty() {
-                            let buffer_data = &buffers[0];  // Assuming single buffer for GLB
+                            let buffer_data = &buffers[0]; // Assuming single buffer for GLB
                             if max_end <= buffer_data.0.len() {
                                 property_buffer_data = buffer_data.0[min_offset..max_end].to_vec();
-                                
+
                                 // Store the starting offset so encoder knows where property data begins
-                                scene.metadata_mut().add_entry("property_buffer_start_offset".to_string(), 
-                                    min_offset.to_string());
+                                scene.metadata_mut().add_entry(
+                                    "property_buffer_start_offset".to_string(),
+                                    min_offset.to_string(),
+                                );
                             }
                         }
-                        
+
                         // Store buffer views JSON in scene metadata
-                        scene.metadata_mut().add_entry("property_buffer_views_json".to_string(), 
-                            serde_json::to_string(&buffer_views_json).unwrap_or_default());
-                        
+                        scene.metadata_mut().add_entry(
+                            "property_buffer_views_json".to_string(),
+                            serde_json::to_string(&buffer_views_json).unwrap_or_default(),
+                        );
+
                         // Store property buffer data as base64 encoded string
                         if !property_buffer_data.is_empty() {
-                            use base64::{Engine as _, engine::general_purpose};
+                            use base64::{engine::general_purpose, Engine as _};
                             let encoded = general_purpose::STANDARD.encode(&property_buffer_data);
-                            scene.metadata_mut().add_entry("property_buffer_data_base64".to_string(), encoded);
+                            scene
+                                .metadata_mut()
+                                .add_entry("property_buffer_data_base64".to_string(), encoded);
                         }
                     }
                 }
@@ -1844,22 +2092,28 @@ impl GltfDecoder {
         // First, try to use document-level structural metadata if available
         if let Some(ref structural_metadata) = self.temp_document_structural_metadata {
             // Store the JSON as a string in the scene's metadata
-            scene.metadata_mut().add_entry("structural_metadata_json".to_string(), 
-                serde_json::to_string(structural_metadata).unwrap_or_default());
+            scene.metadata_mut().add_entry(
+                "structural_metadata_json".to_string(),
+                serde_json::to_string(structural_metadata).unwrap_or_default(),
+            );
         } else {
             // Fallback: Extract structural metadata from the first primitive's extension attributes
             // (assuming all primitives in the first mesh have the same structural metadata)
             if let Some(first_mesh_extensions) = self.extension_attributes.first() {
                 if let Some(first_primitive_extensions) = first_mesh_extensions.first() {
-                    if let Some(ref structural_metadata) = first_primitive_extensions.structural_metadata {
+                    if let Some(ref structural_metadata) =
+                        first_primitive_extensions.structural_metadata
+                    {
                         // Store the JSON as a string in the scene's metadata
-                        // Since the scene's structural metadata uses custom types, we'll need to 
+                        // Since the scene's structural metadata uses custom types, we'll need to
                         // create a public method to store this for the encoder to access
-                        
+
                         // For now, we'll store it as a scene metadata entry
                         // This is a workaround since the StructuralMetadata type doesn't support JSON directly
-                        scene.metadata_mut().add_entry("structural_metadata_json".to_string(), 
-                            serde_json::to_string(structural_metadata).unwrap_or_default());
+                        scene.metadata_mut().add_entry(
+                            "structural_metadata_json".to_string(),
+                            serde_json::to_string(structural_metadata).unwrap_or_default(),
+                        );
                     }
                 }
             }
@@ -1870,216 +2124,324 @@ impl GltfDecoder {
     /// Copy textures to the scene.
     fn copy_textures_to_scene(&mut self, scene: &mut Scene) -> Result<(), Err> {
         if let Some(ref gltf_model) = self.gltf_model {
-            
             for (i, image) in gltf_model.images().enumerate() {
-                
                 // Create a new texture
                 let mut texture = crate::core::texture::Texture::new();
-                
+
                 // Update mapping between glTF images and textures in the scene
                 self.gltf_image_to_draco_texture.insert(i as i32, ());
-                
+
                 // Get source image from glTF image
                 let source_image = self.get_source_image(gltf_model, &image)?;
-                
+
                 // Set the source image on the texture
                 texture.set_source_image(source_image);
-                
+
                 // Add texture to the scene's material library
                 let texture_library = scene.material_library_mut().get_texture_library_mut();
                 texture_library.push(texture);
             }
-            
+
             // Now create materials that use these textures
             self.copy_materials_to_scene(scene)?;
         }
         Ok(())
     }
-    
+
     /// Copy materials from glTF to the scene and link them with textures.
     fn copy_materials_to_scene(&mut self, scene: &mut Scene) -> Result<(), Err> {
         if let Some(ref gltf_model) = self.gltf_model {
-            
             for (i, gltf_material) in gltf_model.materials().enumerate() {
-                
                 let mut material = crate::core::material::Material::new();
-                material.set_name(gltf_material.name().unwrap_or(&format!("Material_{}", i)).to_string());
-                
+                material.set_name(
+                    gltf_material
+                        .name()
+                        .unwrap_or(&format!("Material_{}", i))
+                        .to_string(),
+                );
+
                 // Read PBR material properties
                 let pbr = gltf_material.pbr_metallic_roughness();
                 material.set_metallic_factor(pbr.metallic_factor());
                 material.set_roughness_factor(pbr.roughness_factor());
-                
+
                 // Set base color factor
                 let base_color = pbr.base_color_factor();
                 material.set_color_factor(crate::prelude::NdVector::from([
                     base_color[0],
-                    base_color[1], 
+                    base_color[1],
                     base_color[2],
-                    base_color[3]
+                    base_color[3],
                 ]));
-                
+
                 // Process base color texture
-                if let Some(base_color_texture) = gltf_material.pbr_metallic_roughness().base_color_texture() {
+                if let Some(base_color_texture) =
+                    gltf_material.pbr_metallic_roughness().base_color_texture()
+                {
                     let texture_index = base_color_texture.texture().index();
-                    
+
                     // Create a texture map for the base color
                     let mut texture_map = crate::core::texture::TextureMap::new();
-                    
+
                     // Get sampler properties from the glTF texture
                     let gltf_texture = base_color_texture.texture();
                     let sampler = gltf_texture.sampler();
                     let (wrapping_mode, min_filter, mag_filter) = {
                         let wrap_s = match sampler.wrap_s() {
-                            gltf::texture::WrappingMode::ClampToEdge => crate::core::texture::AxisWrappingMode::ClampToEdge,
-                            gltf::texture::WrappingMode::MirroredRepeat => crate::core::texture::AxisWrappingMode::MirroredRepeat,
-                            gltf::texture::WrappingMode::Repeat => crate::core::texture::AxisWrappingMode::Repeat,
+                            gltf::texture::WrappingMode::ClampToEdge => {
+                                crate::core::texture::AxisWrappingMode::ClampToEdge
+                            }
+                            gltf::texture::WrappingMode::MirroredRepeat => {
+                                crate::core::texture::AxisWrappingMode::MirroredRepeat
+                            }
+                            gltf::texture::WrappingMode::Repeat => {
+                                crate::core::texture::AxisWrappingMode::Repeat
+                            }
                         };
                         let wrap_t = match sampler.wrap_t() {
-                            gltf::texture::WrappingMode::ClampToEdge => crate::core::texture::AxisWrappingMode::ClampToEdge,
-                            gltf::texture::WrappingMode::MirroredRepeat => crate::core::texture::AxisWrappingMode::MirroredRepeat,
-                            gltf::texture::WrappingMode::Repeat => crate::core::texture::AxisWrappingMode::Repeat,
+                            gltf::texture::WrappingMode::ClampToEdge => {
+                                crate::core::texture::AxisWrappingMode::ClampToEdge
+                            }
+                            gltf::texture::WrappingMode::MirroredRepeat => {
+                                crate::core::texture::AxisWrappingMode::MirroredRepeat
+                            }
+                            gltf::texture::WrappingMode::Repeat => {
+                                crate::core::texture::AxisWrappingMode::Repeat
+                            }
                         };
                         let wrapping_mode = crate::core::texture::WrappingMode::new(wrap_s, wrap_t);
-                        
+
                         let min_filter = sampler.min_filter().map(|f| match f {
-                            gltf::texture::MinFilter::Nearest => crate::core::texture::FilterType::Nearest,
-                            gltf::texture::MinFilter::Linear => crate::core::texture::FilterType::Linear,
-                            gltf::texture::MinFilter::NearestMipmapNearest => crate::core::texture::FilterType::NearestMipmapNearest,
-                            gltf::texture::MinFilter::LinearMipmapNearest => crate::core::texture::FilterType::LinearMipmapNearest,
-                            gltf::texture::MinFilter::NearestMipmapLinear => crate::core::texture::FilterType::NearestMipmapLinear,
-                            gltf::texture::MinFilter::LinearMipmapLinear => crate::core::texture::FilterType::LinearMipmapLinear,
+                            gltf::texture::MinFilter::Nearest => {
+                                crate::core::texture::FilterType::Nearest
+                            }
+                            gltf::texture::MinFilter::Linear => {
+                                crate::core::texture::FilterType::Linear
+                            }
+                            gltf::texture::MinFilter::NearestMipmapNearest => {
+                                crate::core::texture::FilterType::NearestMipmapNearest
+                            }
+                            gltf::texture::MinFilter::LinearMipmapNearest => {
+                                crate::core::texture::FilterType::LinearMipmapNearest
+                            }
+                            gltf::texture::MinFilter::NearestMipmapLinear => {
+                                crate::core::texture::FilterType::NearestMipmapLinear
+                            }
+                            gltf::texture::MinFilter::LinearMipmapLinear => {
+                                crate::core::texture::FilterType::LinearMipmapLinear
+                            }
                         });
-                        
+
                         let mag_filter = sampler.mag_filter().map(|f| match f {
-                            gltf::texture::MagFilter::Nearest => crate::core::texture::FilterType::Nearest,
-                            gltf::texture::MagFilter::Linear => crate::core::texture::FilterType::Linear,
+                            gltf::texture::MagFilter::Nearest => {
+                                crate::core::texture::FilterType::Nearest
+                            }
+                            gltf::texture::MagFilter::Linear => {
+                                crate::core::texture::FilterType::Linear
+                            }
                         });
-                        
+
                         (Some(wrapping_mode), min_filter, mag_filter)
                     };
-                    
+
                     texture_map.set_properties(
                         crate::core::texture::Type::Color,
                         wrapping_mode,
                         Some(base_color_texture.tex_coord() as isize),
                         min_filter,
-                        mag_filter
+                        mag_filter,
                     );
-                    
+
                     // Get the texture from the scene's texture library
-                    if let Some(texture) = scene.material_library().get_texture_library().get(texture_index) {
+                    if let Some(texture) = scene
+                        .material_library()
+                        .get_texture_library()
+                        .get(texture_index)
+                    {
                         texture_map.set_texture(texture.clone());
                         material.set_texture_map(crate::core::texture::Type::Color, texture_map);
                     }
                 }
-                
+
                 // Process normal texture
                 if let Some(normal_texture) = gltf_material.normal_texture() {
                     let texture_index = normal_texture.texture().index();
-                    
+
                     let mut texture_map = crate::core::texture::TextureMap::new();
-                    
+
                     // Get sampler properties from the glTF texture
                     let gltf_texture = normal_texture.texture();
                     let sampler = gltf_texture.sampler();
                     let (wrapping_mode, min_filter, mag_filter) = {
                         let wrap_s = match sampler.wrap_s() {
-                            gltf::texture::WrappingMode::ClampToEdge => crate::core::texture::AxisWrappingMode::ClampToEdge,
-                            gltf::texture::WrappingMode::MirroredRepeat => crate::core::texture::AxisWrappingMode::MirroredRepeat,
-                            gltf::texture::WrappingMode::Repeat => crate::core::texture::AxisWrappingMode::Repeat,
+                            gltf::texture::WrappingMode::ClampToEdge => {
+                                crate::core::texture::AxisWrappingMode::ClampToEdge
+                            }
+                            gltf::texture::WrappingMode::MirroredRepeat => {
+                                crate::core::texture::AxisWrappingMode::MirroredRepeat
+                            }
+                            gltf::texture::WrappingMode::Repeat => {
+                                crate::core::texture::AxisWrappingMode::Repeat
+                            }
                         };
                         let wrap_t = match sampler.wrap_t() {
-                            gltf::texture::WrappingMode::ClampToEdge => crate::core::texture::AxisWrappingMode::ClampToEdge,
-                            gltf::texture::WrappingMode::MirroredRepeat => crate::core::texture::AxisWrappingMode::MirroredRepeat,
-                            gltf::texture::WrappingMode::Repeat => crate::core::texture::AxisWrappingMode::Repeat,
+                            gltf::texture::WrappingMode::ClampToEdge => {
+                                crate::core::texture::AxisWrappingMode::ClampToEdge
+                            }
+                            gltf::texture::WrappingMode::MirroredRepeat => {
+                                crate::core::texture::AxisWrappingMode::MirroredRepeat
+                            }
+                            gltf::texture::WrappingMode::Repeat => {
+                                crate::core::texture::AxisWrappingMode::Repeat
+                            }
                         };
                         let wrapping_mode = crate::core::texture::WrappingMode::new(wrap_s, wrap_t);
-                        
+
                         let min_filter = sampler.min_filter().map(|f| match f {
-                            gltf::texture::MinFilter::Nearest => crate::core::texture::FilterType::Nearest,
-                            gltf::texture::MinFilter::Linear => crate::core::texture::FilterType::Linear,
-                            gltf::texture::MinFilter::NearestMipmapNearest => crate::core::texture::FilterType::NearestMipmapNearest,
-                            gltf::texture::MinFilter::LinearMipmapNearest => crate::core::texture::FilterType::LinearMipmapNearest,
-                            gltf::texture::MinFilter::NearestMipmapLinear => crate::core::texture::FilterType::NearestMipmapLinear,
-                            gltf::texture::MinFilter::LinearMipmapLinear => crate::core::texture::FilterType::LinearMipmapLinear,
+                            gltf::texture::MinFilter::Nearest => {
+                                crate::core::texture::FilterType::Nearest
+                            }
+                            gltf::texture::MinFilter::Linear => {
+                                crate::core::texture::FilterType::Linear
+                            }
+                            gltf::texture::MinFilter::NearestMipmapNearest => {
+                                crate::core::texture::FilterType::NearestMipmapNearest
+                            }
+                            gltf::texture::MinFilter::LinearMipmapNearest => {
+                                crate::core::texture::FilterType::LinearMipmapNearest
+                            }
+                            gltf::texture::MinFilter::NearestMipmapLinear => {
+                                crate::core::texture::FilterType::NearestMipmapLinear
+                            }
+                            gltf::texture::MinFilter::LinearMipmapLinear => {
+                                crate::core::texture::FilterType::LinearMipmapLinear
+                            }
                         });
-                        
+
                         let mag_filter = sampler.mag_filter().map(|f| match f {
-                            gltf::texture::MagFilter::Nearest => crate::core::texture::FilterType::Nearest,
-                            gltf::texture::MagFilter::Linear => crate::core::texture::FilterType::Linear,
+                            gltf::texture::MagFilter::Nearest => {
+                                crate::core::texture::FilterType::Nearest
+                            }
+                            gltf::texture::MagFilter::Linear => {
+                                crate::core::texture::FilterType::Linear
+                            }
                         });
-                        
+
                         (Some(wrapping_mode), min_filter, mag_filter)
                     };
-                    
+
                     texture_map.set_properties(
                         crate::core::texture::Type::NormalTangentSpace,
                         wrapping_mode,
                         Some(normal_texture.tex_coord() as isize),
                         min_filter,
-                        mag_filter
+                        mag_filter,
                     );
-                    
-                    if let Some(texture) = scene.material_library().get_texture_library().get(texture_index) {
+
+                    if let Some(texture) = scene
+                        .material_library()
+                        .get_texture_library()
+                        .get(texture_index)
+                    {
                         texture_map.set_texture(texture.clone());
-                        material.set_texture_map(crate::core::texture::Type::NormalTangentSpace, texture_map);
+                        material.set_texture_map(
+                            crate::core::texture::Type::NormalTangentSpace,
+                            texture_map,
+                        );
                     }
                 }
-                
+
                 // Process metallic-roughness texture
-                if let Some(mr_texture) = gltf_material.pbr_metallic_roughness().metallic_roughness_texture() {
+                if let Some(mr_texture) = gltf_material
+                    .pbr_metallic_roughness()
+                    .metallic_roughness_texture()
+                {
                     let texture_index = mr_texture.texture().index();
-                    
+
                     let mut texture_map = crate::core::texture::TextureMap::new();
-                    
+
                     // Get sampler properties from the glTF texture
                     let gltf_texture = mr_texture.texture();
                     let sampler = gltf_texture.sampler();
                     let (wrapping_mode, min_filter, mag_filter) = {
                         let wrap_s = match sampler.wrap_s() {
-                            gltf::texture::WrappingMode::ClampToEdge => crate::core::texture::AxisWrappingMode::ClampToEdge,
-                            gltf::texture::WrappingMode::MirroredRepeat => crate::core::texture::AxisWrappingMode::MirroredRepeat,
-                            gltf::texture::WrappingMode::Repeat => crate::core::texture::AxisWrappingMode::Repeat,
+                            gltf::texture::WrappingMode::ClampToEdge => {
+                                crate::core::texture::AxisWrappingMode::ClampToEdge
+                            }
+                            gltf::texture::WrappingMode::MirroredRepeat => {
+                                crate::core::texture::AxisWrappingMode::MirroredRepeat
+                            }
+                            gltf::texture::WrappingMode::Repeat => {
+                                crate::core::texture::AxisWrappingMode::Repeat
+                            }
                         };
                         let wrap_t = match sampler.wrap_t() {
-                            gltf::texture::WrappingMode::ClampToEdge => crate::core::texture::AxisWrappingMode::ClampToEdge,
-                            gltf::texture::WrappingMode::MirroredRepeat => crate::core::texture::AxisWrappingMode::MirroredRepeat,
-                            gltf::texture::WrappingMode::Repeat => crate::core::texture::AxisWrappingMode::Repeat,
+                            gltf::texture::WrappingMode::ClampToEdge => {
+                                crate::core::texture::AxisWrappingMode::ClampToEdge
+                            }
+                            gltf::texture::WrappingMode::MirroredRepeat => {
+                                crate::core::texture::AxisWrappingMode::MirroredRepeat
+                            }
+                            gltf::texture::WrappingMode::Repeat => {
+                                crate::core::texture::AxisWrappingMode::Repeat
+                            }
                         };
                         let wrapping_mode = crate::core::texture::WrappingMode::new(wrap_s, wrap_t);
-                        
+
                         let min_filter = sampler.min_filter().map(|f| match f {
-                            gltf::texture::MinFilter::Nearest => crate::core::texture::FilterType::Nearest,
-                            gltf::texture::MinFilter::Linear => crate::core::texture::FilterType::Linear,
-                            gltf::texture::MinFilter::NearestMipmapNearest => crate::core::texture::FilterType::NearestMipmapNearest,
-                            gltf::texture::MinFilter::LinearMipmapNearest => crate::core::texture::FilterType::LinearMipmapNearest,
-                            gltf::texture::MinFilter::NearestMipmapLinear => crate::core::texture::FilterType::NearestMipmapLinear,
-                            gltf::texture::MinFilter::LinearMipmapLinear => crate::core::texture::FilterType::LinearMipmapLinear,
+                            gltf::texture::MinFilter::Nearest => {
+                                crate::core::texture::FilterType::Nearest
+                            }
+                            gltf::texture::MinFilter::Linear => {
+                                crate::core::texture::FilterType::Linear
+                            }
+                            gltf::texture::MinFilter::NearestMipmapNearest => {
+                                crate::core::texture::FilterType::NearestMipmapNearest
+                            }
+                            gltf::texture::MinFilter::LinearMipmapNearest => {
+                                crate::core::texture::FilterType::LinearMipmapNearest
+                            }
+                            gltf::texture::MinFilter::NearestMipmapLinear => {
+                                crate::core::texture::FilterType::NearestMipmapLinear
+                            }
+                            gltf::texture::MinFilter::LinearMipmapLinear => {
+                                crate::core::texture::FilterType::LinearMipmapLinear
+                            }
                         });
-                        
+
                         let mag_filter = sampler.mag_filter().map(|f| match f {
-                            gltf::texture::MagFilter::Nearest => crate::core::texture::FilterType::Nearest,
-                            gltf::texture::MagFilter::Linear => crate::core::texture::FilterType::Linear,
+                            gltf::texture::MagFilter::Nearest => {
+                                crate::core::texture::FilterType::Nearest
+                            }
+                            gltf::texture::MagFilter::Linear => {
+                                crate::core::texture::FilterType::Linear
+                            }
                         });
-                        
+
                         (Some(wrapping_mode), min_filter, mag_filter)
                     };
-                    
+
                     texture_map.set_properties(
                         crate::core::texture::Type::MetallicRoughness,
                         wrapping_mode,
                         Some(mr_texture.tex_coord() as isize),
                         min_filter,
-                        mag_filter
+                        mag_filter,
                     );
-                    
-                    if let Some(texture) = scene.material_library().get_texture_library().get(texture_index) {
+
+                    if let Some(texture) = scene
+                        .material_library()
+                        .get_texture_library()
+                        .get(texture_index)
+                    {
                         texture_map.set_texture(texture.clone());
-                        material.set_texture_map(crate::core::texture::Type::MetallicRoughness, texture_map);
+                        material.set_texture_map(
+                            crate::core::texture::Type::MetallicRoughness,
+                            texture_map,
+                        );
                     }
                 }
-                
+
                 // Add material to scene
                 scene.material_library_mut().add_material(material);
             }
@@ -2091,7 +2453,7 @@ impl GltfDecoder {
     fn decode_scene_nodes(&mut self, scene: &mut Scene) -> Result<(), Err> {
         // Collect node information first to avoid borrow checker issues
         let mut root_node_indices = Vec::new();
-        
+
         if let Some(ref gltf_model) = self.gltf_model {
             // Process each scene in the glTF model
             for (_scene_index, gltf_scene) in gltf_model.scenes().enumerate() {
@@ -2101,10 +2463,10 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         // Clone extension attributes to avoid borrow checker issues
         let extension_attributes = self.extension_attributes.clone();
-        
+
         // Process each root node. We'll temporarily take ownership of gltf_model and buffers to avoid borrow conflicts
         let gltf_model = self.gltf_model.take();
         let buffers = self.buffers.take();
@@ -2112,41 +2474,48 @@ impl GltfDecoder {
             for node_index in root_node_indices {
                 if let Some(node) = gltf_model.nodes().nth(node_index) {
                     let parent_index = usize::MAX; // Use MAX to indicate this is a root node
-                    Self::decode_node_for_scene_with_gltf_node_static(&node, parent_index, scene, &buffers, &extension_attributes, &gltf_model)?;
+                    Self::decode_node_for_scene_with_gltf_node_static(
+                        &node,
+                        parent_index,
+                        scene,
+                        &buffers,
+                        &extension_attributes,
+                        &gltf_model,
+                    )?;
                 }
             }
             // Restore the gltf_model and buffers
             self.gltf_model = Some(gltf_model);
             self.buffers = Some(buffers);
         }
-        
+
         Ok(())
     }
 
     /// Static version of decode_node_for_scene_with_gltf_node to avoid borrow checker issues
     fn decode_node_for_scene_with_gltf_node_static(
-        node: &gltf::Node, 
-        parent_index: usize, 
-        scene: &mut Scene, 
-        buffers: &[gltf::buffer::Data], 
+        node: &gltf::Node,
+        parent_index: usize,
+        scene: &mut Scene,
+        buffers: &[gltf::buffer::Data],
         extension_attributes: &[Vec<ExtensionAttributes>],
-        gltf_model: &gltf::Document
+        gltf_model: &gltf::Document,
     ) -> Result<(), Err> {
         // Get node transformation
         let trsm = Self::get_node_transformation_matrix(node);
-        
+
         // Create a scene node with the transformation
         let mut scene_node = crate::core::scene::SceneNode::new();
         scene_node.set_trs_matrix(trsm);
-        
+
         // Set parent if this is not a root node
         if parent_index != usize::MAX && parent_index < scene.num_nodes() {
             scene_node.add_parent_index(parent_index);
         }
-        
+
         // Add the node to the scene
         let actual_node_index = scene.add_node(scene_node);
-        
+
         // If this is a root node, add to root indices
         if parent_index == usize::MAX {
             scene.add_root_node_index(actual_node_index);
@@ -2158,54 +2527,64 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         // Process node's mesh if it has one
         if let Some(mesh) = node.mesh() {
-            
             // Create a mesh group for this node
             let mesh_group_index = scene.add_mesh_group();
-            
+
             // Set the mesh group index on the node
             if let Some(node_ref) = scene.get_node_mut(actual_node_index) {
                 node_ref.set_mesh_group_index(Some(mesh_group_index));
             }
-            
+
             // Process each primitive in the mesh
             for (primitive_index, primitive) in mesh.primitives().enumerate() {
                 // Get extension attributes for this mesh and primitive
-                let ext_attrs = if mesh.index() < extension_attributes.len() 
-                    && primitive_index < extension_attributes[mesh.index()].len() {
+                let ext_attrs = if mesh.index() < extension_attributes.len()
+                    && primitive_index < extension_attributes[mesh.index()].len()
+                {
                     Some(&extension_attributes[mesh.index()][primitive_index])
                 } else {
                     None
                 };
-                
+
                 // Create a mesh from the primitive data using actual buffer data
-                match Self::create_mesh_from_primitive_with_buffers_with_extensions(&primitive, buffers, ext_attrs, gltf_model) {
+                match Self::create_mesh_from_primitive_with_buffers_with_extensions(
+                    &primitive, buffers, ext_attrs, gltf_model,
+                ) {
                     Ok(draco_mesh) => {
                         // Add the mesh to the scene
                         let mesh_index = scene.add_mesh(draco_mesh);
-                        
+
                         // Store mesh features information in scene metadata if present
                         if let Some(ext_attrs) = ext_attrs {
-                            if let Some(mesh_features_ext) = ext_attrs.extensions.get("EXT_mesh_features") {
-                                if let Ok(mesh_features_json) = serde_json::to_string(mesh_features_ext) {
-                                    scene.metadata_mut().add_entry("mesh_features_json".to_string(), mesh_features_json);
+                            if let Some(mesh_features_ext) =
+                                ext_attrs.extensions.get("EXT_mesh_features")
+                            {
+                                if let Ok(mesh_features_json) =
+                                    serde_json::to_string(mesh_features_ext)
+                                {
+                                    scene.metadata_mut().add_entry(
+                                        "mesh_features_json".to_string(),
+                                        mesh_features_json,
+                                    );
                                 }
                             }
                         }
-                        
+
                         // Get material index from primitive
-                        let material_index = primitive.material().index().map(|i| i as i32).unwrap_or(-1);
-                        
+                        let material_index =
+                            primitive.material().index().map(|i| i as i32).unwrap_or(-1);
+
                         // Create a mesh instance referencing the actual mesh
-                        let mesh_instance = crate::core::scene::MeshInstance::new(mesh_index, material_index);
-                        
+                        let mesh_instance =
+                            crate::core::scene::MeshInstance::new(mesh_index, material_index);
+
                         // Add the mesh instance to the mesh group
                         if let Some(mesh_group) = scene.get_mesh_group_mut(mesh_group_index) {
                             mesh_group.add_mesh_instance(mesh_instance);
                         }
-                        
                     }
                     Err(_) => {
                         // Create a placeholder mesh instance to maintain structure
@@ -2217,19 +2596,26 @@ impl GltfDecoder {
                 }
             }
         }
-        
+
         // Process child nodes recursively
         for child in node.children() {
-            Self::decode_node_for_scene_with_gltf_node_static(&child, actual_node_index, scene, buffers, extension_attributes, gltf_model)?;
+            Self::decode_node_for_scene_with_gltf_node_static(
+                &child,
+                actual_node_index,
+                scene,
+                buffers,
+                extension_attributes,
+                gltf_model,
+            )?;
         }
-        
+
         Ok(())
     }
 
     /// Extract node transformation matrix from glTF node
     fn get_node_transformation_matrix(node: &gltf::Node) -> TrsMatrix {
         let mut trsm = TrsMatrix::new();
-        
+
         // Extract transformation from glTF node
         match node.transform() {
             gltf::scene::Transform::Matrix { matrix } => {
@@ -2243,14 +2629,18 @@ impl GltfDecoder {
                 }
                 trsm.set_matrix(crate::core::scene::Matrix4d::new(data));
             }
-            gltf::scene::Transform::Decomposed { translation, rotation, scale } => {
+            gltf::scene::Transform::Decomposed {
+                translation,
+                rotation,
+                scale,
+            } => {
                 // Set translation
                 trsm.set_translation(crate::core::scene::Vector3d::new(
                     translation[0] as f64,
                     translation[1] as f64,
                     translation[2] as f64,
                 ));
-                
+
                 // Set rotation (quaternion)
                 trsm.set_rotation(crate::core::scene::Quaterniond::new(
                     rotation[3] as f64, // w
@@ -2258,7 +2648,7 @@ impl GltfDecoder {
                     rotation[1] as f64, // y
                     rotation[2] as f64, // z
                 ));
-                
+
                 // Set scale
                 trsm.set_scale(crate::core::scene::Vector3d::new(
                     scale[0] as f64,
@@ -2267,24 +2657,43 @@ impl GltfDecoder {
                 ));
             }
         }
-        
+
         trsm
     }
 
     /// Create a Draco Mesh from a GLTF primitive (requires buffers for actual data extraction)
-    
+
     /// Extract Vec3 data from GLTF buffer
-    fn extract_vec3_from_buffer(accessor: &gltf::Accessor, view: &gltf::buffer::View, buffer: &gltf::buffer::Data) -> Result<Vec<crate::core::shared::NdVector<3, f32>>, Err> {
+    fn extract_vec3_from_buffer(
+        accessor: &gltf::Accessor,
+        view: &gltf::buffer::View,
+        buffer: &gltf::buffer::Data,
+    ) -> Result<Vec<crate::core::shared::NdVector<3, f32>>, Err> {
         let start = view.offset() + accessor.offset();
         let stride = view.stride().unwrap_or(12); // Default to 3 * 4 bytes for Vec3<f32>
-        
+
         let mut result = Vec::new();
         for i in 0..accessor.count() {
             let offset = start + i * stride;
             if offset + 12 <= buffer.len() {
-                let x = f32::from_le_bytes([buffer[offset], buffer[offset+1], buffer[offset+2], buffer[offset+3]]);
-                let y = f32::from_le_bytes([buffer[offset+4], buffer[offset+5], buffer[offset+6], buffer[offset+7]]);
-                let z = f32::from_le_bytes([buffer[offset+8], buffer[offset+9], buffer[offset+10], buffer[offset+11]]);
+                let x = f32::from_le_bytes([
+                    buffer[offset],
+                    buffer[offset + 1],
+                    buffer[offset + 2],
+                    buffer[offset + 3],
+                ]);
+                let y = f32::from_le_bytes([
+                    buffer[offset + 4],
+                    buffer[offset + 5],
+                    buffer[offset + 6],
+                    buffer[offset + 7],
+                ]);
+                let z = f32::from_le_bytes([
+                    buffer[offset + 8],
+                    buffer[offset + 9],
+                    buffer[offset + 10],
+                    buffer[offset + 11],
+                ]);
                 result.push(crate::core::shared::NdVector::from([x, y, z]));
             }
         }
@@ -2292,16 +2701,30 @@ impl GltfDecoder {
     }
 
     /// Extract Vec2 data from GLTF buffer
-    fn extract_vec2_from_buffer(accessor: &gltf::Accessor, view: &gltf::buffer::View, buffer: &gltf::buffer::Data) -> Result<Vec<crate::core::shared::NdVector<2, f32>>, Err> {
+    fn extract_vec2_from_buffer(
+        accessor: &gltf::Accessor,
+        view: &gltf::buffer::View,
+        buffer: &gltf::buffer::Data,
+    ) -> Result<Vec<crate::core::shared::NdVector<2, f32>>, Err> {
         let start = view.offset() + accessor.offset();
         let stride = view.stride().unwrap_or(8); // Default to 2 * 4 bytes for Vec2<f32>
-        
+
         let mut result = Vec::new();
         for i in 0..accessor.count() {
             let offset = start + i * stride;
             if offset + 8 <= buffer.len() {
-                let x = f32::from_le_bytes([buffer[offset], buffer[offset+1], buffer[offset+2], buffer[offset+3]]);
-                let y = f32::from_le_bytes([buffer[offset+4], buffer[offset+5], buffer[offset+6], buffer[offset+7]]);
+                let x = f32::from_le_bytes([
+                    buffer[offset],
+                    buffer[offset + 1],
+                    buffer[offset + 2],
+                    buffer[offset + 3],
+                ]);
+                let y = f32::from_le_bytes([
+                    buffer[offset + 4],
+                    buffer[offset + 5],
+                    buffer[offset + 6],
+                    buffer[offset + 7],
+                ]);
                 result.push(crate::core::shared::NdVector::from([x, y]));
             }
         }
@@ -2309,41 +2732,61 @@ impl GltfDecoder {
     }
 
     /// Read index value from buffer based on component type
-    fn read_index_from_buffer(buffer: &gltf::buffer::Data, offset: usize, component_size: usize) -> Result<usize, Err> {
+    fn read_index_from_buffer(
+        buffer: &gltf::buffer::Data,
+        offset: usize,
+        component_size: usize,
+    ) -> Result<usize, Err> {
         if offset + component_size > buffer.len() {
-            return Err(Err::LoadError(format!("Index buffer overflow: offset {} + size {} > buffer length {}", offset, component_size, buffer.len())));
+            return Err(Err::LoadError(format!(
+                "Index buffer overflow: offset {} + size {} > buffer length {}",
+                offset,
+                component_size,
+                buffer.len()
+            )));
         }
-        
+
         let result = match component_size {
             1 => buffer[offset] as usize, // UNSIGNED_BYTE
-            2 => u16::from_le_bytes([buffer[offset], buffer[offset+1]]) as usize, // UNSIGNED_SHORT
-            4 => u32::from_le_bytes([buffer[offset], buffer[offset+1], buffer[offset+2], buffer[offset+3]]) as usize, // UNSIGNED_INT
-            _ => return Err(Err::LoadError(format!("Unsupported index component size: {}", component_size))),
+            2 => u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as usize, // UNSIGNED_SHORT
+            4 => u32::from_le_bytes([
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
+            ]) as usize, // UNSIGNED_INT
+            _ => {
+                return Err(Err::LoadError(format!(
+                    "Unsupported index component size: {}",
+                    component_size
+                )))
+            }
         };
-        
+
         Ok(result)
     }
 
     /// Create a Draco Mesh from a GLTF primitive with extension attributes support
     fn create_mesh_from_primitive_with_buffers_with_extensions(
-        primitive: &gltf::Primitive, 
-        buffers: &[gltf::buffer::Data], 
+        primitive: &gltf::Primitive,
+        buffers: &[gltf::buffer::Data],
         extension_attributes: Option<&ExtensionAttributes>,
-        _gltf_model: &gltf::Document
+        _gltf_model: &gltf::Document,
     ) -> Result<Mesh, Err> {
         use gltf::mesh::Mode;
         use gltf::Semantic;
-        
+
         // Check primitive mode
         if primitive.mode() != Mode::Triangles {
-            return Err(Err::LoadError(
-                format!("Unsupported primitive mode: {:?}. Only triangles are supported.", primitive.mode())
-            ));
+            return Err(Err::LoadError(format!(
+                "Unsupported primitive mode: {:?}. Only triangles are supported.",
+                primitive.mode()
+            )));
         }
 
         // Create a mesh builder
         let mut mesh_builder = MeshBuilder::new();
-        
+
         // Process indices if available
         let mut face_indices = Vec::new();
         if let Some(indices_accessor) = primitive.indices() {
@@ -2352,31 +2795,31 @@ impl GltfDecoder {
                 let buffer = &buffers[view.buffer().index()];
                 let start = view.offset() + indices_accessor.offset();
                 let stride = indices_accessor.size();
-                
+
                 for i in 0..(indices_accessor.count() / 3) {
                     let offset0 = start + i * 3 * stride;
                     let offset1 = start + (i * 3 + 1) * stride;
                     let offset2 = start + (i * 3 + 2) * stride;
-                    
+
                     let idx0 = Self::read_index_from_buffer(buffer, offset0, stride)?;
                     let idx1 = Self::read_index_from_buffer(buffer, offset1, stride)?;
                     let idx2 = Self::read_index_from_buffer(buffer, offset2, stride)?;
-                    
+
                     face_indices.push([idx0, idx1, idx2]);
                 }
             }
         }
-        
+
         // Set connectivity
         if !face_indices.is_empty() {
             mesh_builder.set_connectivity_attribute(face_indices);
         }
-        
+
         // Process standard attributes
         // We need to handle attributes carefully because primitive.attributes() may panic
         // on custom attributes when loaded without validation
         let mut attributes: Vec<(Semantic, Accessor<'_>)> = Vec::new();
-        
+
         // Try to get standard attributes by known semantics
         if let Some(positions) = primitive.get(&Semantic::Positions) {
             attributes.push((Semantic::Positions, positions));
@@ -2384,17 +2827,20 @@ impl GltfDecoder {
         if let Some(normals) = primitive.get(&Semantic::Normals) {
             attributes.push((Semantic::Normals, normals));
         }
-        for i in 0..8 {  // Support up to 8 texture coordinate sets
+        for i in 0..8 {
+            // Support up to 8 texture coordinate sets
             if let Some(texcoords) = primitive.get(&Semantic::TexCoords(i)) {
                 attributes.push((Semantic::TexCoords(i), texcoords));
             }
         }
-        for i in 0..8 {  // Support up to 8 color sets
+        for i in 0..8 {
+            // Support up to 8 color sets
             if let Some(colors) = primitive.get(&Semantic::Colors(i)) {
                 attributes.push((Semantic::Colors(i), colors));
             }
         }
-        for i in 0..8 {  // Support up to 8 joint/weight sets  
+        for i in 0..8 {
+            // Support up to 8 joint/weight sets
             if let Some(joints) = primitive.get(&Semantic::Joints(i)) {
                 attributes.push((Semantic::Joints(i), joints));
             }
@@ -2405,16 +2851,18 @@ impl GltfDecoder {
         if let Some(tangents) = primitive.get(&Semantic::Tangents) {
             attributes.push((Semantic::Tangents, tangents));
         }
-        
+
         // sort attributes by the name
         attributes.sort_by_key(|(semantic, _)| semantic.to_string());
 
         // compute parents beforehand
         // For now we just let normals and texture coordinates depend on positions
-        let mut parents = (0..attributes.len()).map(|_|Vec::new()).collect::<Vec<_>>();
-        for (i, semantic) in attributes.iter().map(|x|&x.0).enumerate() {
+        let mut parents = (0..attributes.len())
+            .map(|_| Vec::new())
+            .collect::<Vec<_>>();
+        for (i, semantic) in attributes.iter().map(|x| &x.0).enumerate() {
             if semantic == &Semantic::Positions {
-                for (j,semantic) in attributes.iter().map(|x|&x.0).enumerate() {
+                for (j, semantic) in attributes.iter().map(|x| &x.0).enumerate() {
                     if matches!(semantic, Semantic::Normals | Semantic::TexCoords(_)) {
                         // Find the position attribute index
                         parents[j].push(AttributeId::new(i));
@@ -2423,14 +2871,16 @@ impl GltfDecoder {
             }
         }
         let mut parents = parents.into_iter();
-        
+
         for (semantic, accessor) in attributes {
             let parent_deps = parents.next().unwrap_or_default();
             match semantic {
                 Semantic::Positions => {
                     if let Some(view) = accessor.view() {
                         let buffer = &buffers[view.buffer().index()];
-                        if let Ok(positions) = Self::extract_vec3_from_buffer(&accessor, &view, buffer) {
+                        if let Ok(positions) =
+                            Self::extract_vec3_from_buffer(&accessor, &view, buffer)
+                        {
                             mesh_builder.add_attribute(
                                 positions,
                                 crate::prelude::AttributeType::Position,
@@ -2443,7 +2893,9 @@ impl GltfDecoder {
                 Semantic::Normals => {
                     if let Some(view) = accessor.view() {
                         let buffer = &buffers[view.buffer().index()];
-                        if let Ok(normals) = Self::extract_vec3_from_buffer(&accessor, &view, buffer) {
+                        if let Ok(normals) =
+                            Self::extract_vec3_from_buffer(&accessor, &view, buffer)
+                        {
                             mesh_builder.add_attribute(
                                 normals,
                                 crate::prelude::AttributeType::Normal,
@@ -2456,7 +2908,9 @@ impl GltfDecoder {
                 Semantic::TexCoords(0) => {
                     if let Some(view) = accessor.view() {
                         let buffer = &buffers[view.buffer().index()];
-                        if let Ok(texcoords) = Self::extract_vec2_from_buffer(&accessor, &view, buffer) {
+                        if let Ok(texcoords) =
+                            Self::extract_vec2_from_buffer(&accessor, &view, buffer)
+                        {
                             mesh_builder.add_attribute(
                                 texcoords,
                                 crate::prelude::AttributeType::TextureCoordinate,
@@ -2469,35 +2923,41 @@ impl GltfDecoder {
                 _ => {}
             }
         }
-        
+
         // Process extension attributes if provided
         if let Some(ext_attrs) = extension_attributes {
             // Check if this primitive uses Draco compression
-            if ext_attrs.extensions.contains_key("KHR_draco_mesh_compression") {
+            if ext_attrs
+                .extensions
+                .contains_key("KHR_draco_mesh_compression")
+            {
                 return Err(Err::LoadError(
                     "KHR_draco_mesh_compression is not yet supported. \
-                    This file contains Draco-compressed mesh data that needs to be decoded first.".to_string()
+                    This file contains Draco-compressed mesh data that needs to be decoded first."
+                        .to_string(),
                 ));
             }
-            
+
             // Process EXT_mesh_features extension
             // Note: The actual mesh features JSON is stored in scene metadata by the caller
             if let Some(_mesh_features_ext) = ext_attrs.extensions.get("EXT_mesh_features") {
                 // EXT_mesh_features is processed by the caller and stored in scene metadata
                 // This ensures the original feature count is preserved for the encoder
             }
-            
+
             for (attr_name, accessor_info) in &ext_attrs.attributes {
                 // Use the stored accessor information to extract the data directly from buffers
                 if attr_name.starts_with("_FEATURE_ID_") {
                     // Extract feature ID data as u32 values using stored accessor info
-                    if let Ok(feature_data) = Self::extract_uint32_from_accessor_info(accessor_info, buffers) {
+                    if let Ok(feature_data) =
+                        Self::extract_uint32_from_accessor_info(accessor_info, buffers)
+                    {
                         // Convert to NdVector<1> for scalar values
                         let feature_data_vectors: Vec<_> = feature_data
                             .into_iter()
                             .map(|val| NdVector::from([val]))
                             .collect();
-                        
+
                         // Add as Custom attribute to the mesh builder
                         // Custom attributes don't need dependencies for now
                         mesh_builder.add_attribute(
@@ -2506,26 +2966,29 @@ impl GltfDecoder {
                             AttributeDomain::Corner,
                             vec![],
                         );
-                        
+
                         // Set the attribute name so it can be used during encoding
                         if let Some(attribute) = mesh_builder.attributes.last_mut() {
                             attribute.set_name(attr_name.to_string());
                         }
-                        
-                        
                     }
                 }
             }
         }
-        
+
         // Build the mesh
-        let mesh = mesh_builder.build().map_err(|e| Err::LoadError(format!("Failed to build mesh: {:?}", e)))?;
-        
+        let mesh = mesh_builder
+            .build()
+            .map_err(|e| Err::LoadError(format!("Failed to build mesh: {:?}", e)))?;
+
         Ok(mesh)
     }
 
     /// Extract uint32 data using stored accessor information
-    fn extract_uint32_from_accessor_info(accessor_info: &AccessorInfo, buffers: &[gltf::buffer::Data]) -> Result<Vec<u32>, Err> {
+    fn extract_uint32_from_accessor_info(
+        accessor_info: &AccessorInfo,
+        buffers: &[gltf::buffer::Data],
+    ) -> Result<Vec<u32>, Err> {
         let buffer_data = &buffers[accessor_info.buffer_view_info.buffer];
         let data_start_idx = accessor_info.buffer_view_info.byte_offset + accessor_info.byte_offset;
         let component_size = match accessor_info.component_type {
@@ -2535,55 +2998,78 @@ impl GltfDecoder {
             5123 => 2, // UNSIGNED_SHORT
             5125 => 4, // UNSIGNED_INT
             5126 => 4, // FLOAT
-            _ => return Err(Err::LoadError(format!("Unsupported component type: {}", accessor_info.component_type))),
+            _ => {
+                return Err(Err::LoadError(format!(
+                    "Unsupported component type: {}",
+                    accessor_info.component_type
+                )))
+            }
         };
-        
-        let byte_stride = accessor_info.buffer_view_info.byte_stride.unwrap_or(component_size);
+
+        let byte_stride = accessor_info
+            .buffer_view_info
+            .byte_stride
+            .unwrap_or(component_size);
         let num_elements = accessor_info.count;
-        
+
         let mut out = Vec::with_capacity(num_elements);
-        
+
         for i in 0..num_elements {
             let element_offset = data_start_idx + i * byte_stride;
-            
+
             if element_offset + component_size > buffer_data.len() {
-                return Err(Err::LoadError("Buffer overflow while reading extension attribute data".to_string()));
+                return Err(Err::LoadError(
+                    "Buffer overflow while reading extension attribute data".to_string(),
+                ));
             }
-            
+
             let value = match accessor_info.component_type {
                 5121 => buffer_data[element_offset] as u32, // UNSIGNED_BYTE
-                5123 => { // UNSIGNED_SHORT
+                5123 => {
+                    // UNSIGNED_SHORT
                     let bytes = [buffer_data[element_offset], buffer_data[element_offset + 1]];
                     u16::from_le_bytes(bytes) as u32
                 }
-                5125 => { // UNSIGNED_INT
+                5125 => {
+                    // UNSIGNED_INT
                     let bytes = [
                         buffer_data[element_offset],
                         buffer_data[element_offset + 1],
                         buffer_data[element_offset + 2],
-                        buffer_data[element_offset + 3]
+                        buffer_data[element_offset + 3],
                     ];
                     u32::from_le_bytes(bytes)
                 }
-                5126 => { // FLOAT
+                5126 => {
+                    // FLOAT
                     let bytes = [
                         buffer_data[element_offset],
                         buffer_data[element_offset + 1],
                         buffer_data[element_offset + 2],
-                        buffer_data[element_offset + 3]
+                        buffer_data[element_offset + 3],
                     ];
                     f32::from_le_bytes(bytes) as u32
                 }
-                _ => return Err(Err::LoadError(format!("Unsupported component type for uint32 conversion: {}", accessor_info.component_type))),
+                _ => {
+                    return Err(Err::LoadError(format!(
+                        "Unsupported component type for uint32 conversion: {}",
+                        accessor_info.component_type
+                    )))
+                }
             };
-            
+
             out.push(value);
         }
         Ok(out)
     }
 
     /// Decodes glTF mesh feature ID sets from extension and adds them to the mesh_features vector.
-    fn decode_mesh_features_from_extension(&mut self, extension: &serde_json::Value, _texture_library: &mut crate::core::texture::TextureLibrary, mesh_features: &mut Vec<MeshFeatures>) -> Result<(), Err> {
+    fn decode_mesh_features_from_extension(
+        &mut self,
+        extension: &serde_json::Value,
+        _texture_library: &mut crate::core::texture::TextureLibrary,
+        mesh_features: &mut Vec<MeshFeatures>,
+    ) -> Result<(), Err> {
         // Decode all mesh feature ID sets from JSON like this:
         //   "EXT_mesh_features": {
         //     "featureIds": [
@@ -2604,45 +3090,48 @@ impl GltfDecoder {
         //       }
         //     ]
         //   }
-        
-        let feature_ids_array = extension
-            .get("featureIds")
-            .ok_or_else(|| Err::InvalidInput("Mesh features extension is malformed.".to_string()))?;
-        
+
+        let feature_ids_array = extension.get("featureIds").ok_or_else(|| {
+            Err::InvalidInput("Mesh features extension is malformed.".to_string())
+        })?;
+
         let feature_ids = feature_ids_array
             .as_array()
             .ok_or_else(|| Err::InvalidInput("Mesh features array is malformed.".to_string()))?;
-        
+
         for feature_id_obj in feature_ids {
-            let obj = feature_id_obj
-                .as_object()
-                .ok_or_else(|| Err::InvalidInput("Mesh features array entry is malformed.".to_string()))?;
-            
+            let obj = feature_id_obj.as_object().ok_or_else(|| {
+                Err::InvalidInput("Mesh features array entry is malformed.".to_string())
+            })?;
+
             // Create a new feature ID set object
             let mut features = MeshFeatures::new();
-            
+
             // The "featureCount" property is required
             let feature_count = obj
                 .get("featureCount")
                 .and_then(|v| v.as_i64())
-                .ok_or_else(|| Err::InvalidInput("Feature count property is malformed.".to_string()))?;
+                .ok_or_else(|| {
+                    Err::InvalidInput("Feature count property is malformed.".to_string())
+                })?;
             features.set_feature_count(feature_count as i32);
-            
+
             // All other properties are optional
             if let Some(null_feature_id) = obj.get("nullFeatureId").and_then(|v| v.as_i64()) {
                 features.set_null_feature_id(null_feature_id as i32);
             }
-            
+
             if let Some(label) = obj.get("label").and_then(|v| v.as_str()) {
                 features.set_label(label);
             }
-            
+
             // Handle both string and numeric attribute references for backward compatibility
             if let Some(attribute_name) = obj.get("attribute").and_then(|v| v.as_str()) {
                 // String format: attribute name like "_FEATURE_ID_0"
                 if let Some(feature_id_str) = attribute_name.strip_prefix("_FEATURE_ID_") {
                     if let Ok(feature_id) = feature_id_str.parse::<i32>() {
-                        if let Some(&att_index) = self.feature_id_attribute_indices.get(&feature_id) {
+                        if let Some(&att_index) = self.feature_id_attribute_indices.get(&feature_id)
+                        {
                             features.set_attribute_index(att_index);
                         }
                     }
@@ -2651,23 +3140,28 @@ impl GltfDecoder {
                 // Numeric format (legacy): attribute index
                 // Convert index in feature ID vertex attribute name like _FEATURE_ID_5
                 // to attribute index in draco::Mesh.
-                if let Some(&att_index) = self.feature_id_attribute_indices.get(&(attribute_index as i32)) {
+                if let Some(&att_index) = self
+                    .feature_id_attribute_indices
+                    .get(&(attribute_index as i32))
+                {
                     features.set_attribute_index(att_index);
                 }
             }
-            
+
             if let Some(texture_obj) = obj.get("texture").and_then(|v| v.as_object()) {
                 // Decode texture containing mesh feature IDs
                 let texture_map = TextureMap::new();
-                
+
                 // Decode the texture itself (implementation would depend on decode_texture method)
                 // For now, this is a placeholder - the actual implementation would need to:
                 // 1. Extract texture index from texture_obj
                 // 2. Create or reference the appropriate texture
                 // 3. Set up the texture map properly
-                
+
                 // Decode array of texture channel indices
-                let channels = if let Some(channels_array) = texture_obj.get("channels").and_then(|v| v.as_array()) {
+                let channels = if let Some(channels_array) =
+                    texture_obj.get("channels").and_then(|v| v.as_array())
+                {
                     channels_array
                         .iter()
                         .filter_map(|v| v.as_i64().map(|i| i as i32))
@@ -2675,79 +3169,93 @@ impl GltfDecoder {
                 } else {
                     vec![0] // Default to channel 0
                 };
-                
+
                 features.set_texture_channels(&channels);
                 features.set_texture_map(&texture_map);
             }
-            
+
             if let Some(property_table) = obj.get("propertyTable").and_then(|v| v.as_i64()) {
                 features.set_property_table_index(property_table as i32);
             }
-            
+
             mesh_features.push(features);
         }
-        
+
         Ok(())
     }
 
     /// Decodes glTF structural metadata from extension of a glTF primitive.
-    fn decode_structural_metadata_from_extension(&mut self, extension: &GltfValue, property_attributes: &mut Vec<i32>) -> Result<(), Err> {
+    fn decode_structural_metadata_from_extension(
+        &mut self,
+        extension: &GltfValue,
+        property_attributes: &mut Vec<i32>,
+    ) -> Result<(), Err> {
         // Decode all structural metadata from JSON like this in glTF primitive:
         //   "EXT_structural_metadata": {
         //     "propertyAttributes": [0]
         //   }
-        
-        let property_attributes_obj = extension
-            .get("propertyAttributes")
-            .ok_or_else(|| {
-                // Extension might contain property textures, support that later
-                // For now, just return OK if no propertyAttributes
-                Err::InvalidInput("No propertyAttributes in structural metadata extension".to_string())
-            });
-        
+
+        let property_attributes_obj = extension.get("propertyAttributes").ok_or_else(|| {
+            // Extension might contain property textures, support that later
+            // For now, just return OK if no propertyAttributes
+            Err::InvalidInput("No propertyAttributes in structural metadata extension".to_string())
+        });
+
         // If there are no property attributes, that's OK - return success
         if property_attributes_obj.is_err() {
             return Ok(());
         }
-        
-        let property_attributes_array = property_attributes_obj?
-            .as_array()
-            .ok_or_else(|| Err::InvalidInput("Property attributes array is malformed.".to_string()))?;
-        
+
+        let property_attributes_array = property_attributes_obj?.as_array().ok_or_else(|| {
+            Err::InvalidInput("Property attributes array is malformed.".to_string())
+        })?;
+
         for value in property_attributes_array {
-            let index = value
-                .as_i64()
-                .ok_or_else(|| Err::InvalidInput("Property attributes array entry is malformed.".to_string()))?;
+            let index = value.as_i64().ok_or_else(|| {
+                Err::InvalidInput("Property attributes array entry is malformed.".to_string())
+            })?;
             property_attributes.push(index as i32);
         }
-        
+
         Ok(())
     }
 
     /// Decodes glTF mesh features from extension attributes and adds them to mesh.
-    fn decode_mesh_features_from_extension_attrs(&mut self, extension: &serde_json::Value, _mesh: &mut Mesh) -> Result<(), Err> {
+    fn decode_mesh_features_from_extension_attrs(
+        &mut self,
+        extension: &serde_json::Value,
+        _mesh: &mut Mesh,
+    ) -> Result<(), Err> {
         let mut mesh_features = Vec::new();
         let mut texture_library = crate::core::texture::TextureLibrary::new();
-        
+
         // Decode mesh features from the extension
-        self.decode_mesh_features_from_extension(extension, &mut texture_library, &mut mesh_features)?;
-        
+        self.decode_mesh_features_from_extension(
+            extension,
+            &mut texture_library,
+            &mut mesh_features,
+        )?;
+
         // Store the mesh features JSON in temp storage for later use by the encoder
         // This preserves the original feature count and other properties
         if let Ok(mesh_features_json) = serde_json::to_string(extension) {
             self.temp_mesh_features_json = Some(mesh_features_json);
         }
-        
+
         Ok(())
     }
 
     /// Decodes glTF structural metadata from extension attributes and adds them to mesh.
-    fn decode_structural_metadata_from_extension_attrs(&mut self, extension: &serde_json::Value, _mesh: &mut Mesh) -> Result<(), Err> {
+    fn decode_structural_metadata_from_extension_attrs(
+        &mut self,
+        extension: &serde_json::Value,
+        _mesh: &mut Mesh,
+    ) -> Result<(), Err> {
         let mut property_attributes = Vec::new();
-        
+
         // Decode structural metadata from the extension
         self.decode_structural_metadata_from_extension(extension, &mut property_attributes)?;
-        
+
         Ok(())
     }
 
@@ -2755,7 +3263,9 @@ impl GltfDecoder {
     fn add_mesh_features_to_scene(&mut self, scene: &mut Scene) -> Result<(), Err> {
         // Store the mesh features JSON in the scene metadata for the encoder to access
         if let Some(ref mesh_features_json) = self.temp_mesh_features_json {
-            scene.metadata_mut().add_entry("mesh_features_json".to_string(), mesh_features_json.clone());
+            scene
+                .metadata_mut()
+                .add_entry("mesh_features_json".to_string(), mesh_features_json.clone());
         }
         Ok(())
     }
@@ -2811,8 +3321,10 @@ impl GltfDecoder {
     }
 }
 
-
-fn copy_data_as_uint32(accessor: &gltf::Accessor, buffers: &[gltf::buffer::Data]) -> Result<Vec<u32>, Err> {
+fn copy_data_as_uint32(
+    accessor: &gltf::Accessor,
+    buffers: &[gltf::buffer::Data],
+) -> Result<Vec<u32>, Err> {
     let view = accessor.view().ok_or_else(|| {
         Err::ConversionError("Error CopyDataAsUint32() accessor has no buffer view.".to_string())
     })?;

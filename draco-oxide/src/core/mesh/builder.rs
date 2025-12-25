@@ -1,16 +1,16 @@
-use std::usize;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::usize;
 
 use gltf::accessor::Dimensions;
 use thiserror::Error;
 
+use super::Mesh;
 use crate::core::attribute::{
-    Attribute, AttributeDomain, AttributeId, AttributeType, ComponentDataType
+    Attribute, AttributeDomain, AttributeId, AttributeType, ComponentDataType,
 };
 use crate::core::shared::{PointIdx, VecPointIdx, Vector};
 use crate::prelude::NdVector;
-use super::Mesh;
 
 pub struct MeshBuilder {
     pub attributes: Vec<Attribute>,
@@ -27,18 +27,30 @@ impl MeshBuilder {
         }
     }
 
-    pub fn add_attribute<Data, const N: usize>(&mut self, data: Vec<Data>, att_type: AttributeType, domain: AttributeDomain, parents: Vec<AttributeId>) -> AttributeId
-        where Data: Vector<N>
+    pub fn add_attribute<Data, const N: usize>(
+        &mut self,
+        data: Vec<Data>,
+        att_type: AttributeType,
+        domain: AttributeDomain,
+        parents: Vec<AttributeId>,
+    ) -> AttributeId
+    where
+        Data: Vector<N>,
     {
         let unique_id = AttributeId::new(self.current_id);
-        self.attributes.push(
-            Attribute::from(unique_id, data, att_type, domain, parents)
-        );
+        self.attributes
+            .push(Attribute::from(unique_id, data, att_type, domain, parents));
         self.current_id += 1;
         unique_id
     }
 
-    pub fn add_gltf_empty_attribute(&mut self, att_type: AttributeType, domain: AttributeDomain, component_type: ComponentDataType, ty: Dimensions) -> AttributeId {
+    pub fn add_gltf_empty_attribute(
+        &mut self,
+        att_type: AttributeType,
+        domain: AttributeDomain,
+        component_type: ComponentDataType,
+        ty: Dimensions,
+    ) -> AttributeId {
         let num_components = ty.multiplicity();
         let unique_id = AttributeId::new(self.current_id);
         let att = Attribute::new_empty(unique_id, att_type, domain, component_type, num_components);
@@ -47,7 +59,13 @@ impl MeshBuilder {
         unique_id
     }
 
-    pub fn add_empty_attribute(&mut self, att_type: AttributeType, domain: AttributeDomain, component_type: ComponentDataType, num_component: usize) -> AttributeId {
+    pub fn add_empty_attribute(
+        &mut self,
+        att_type: AttributeType,
+        domain: AttributeDomain,
+        component_type: ComponentDataType,
+        num_component: usize,
+    ) -> AttributeId {
         let unique_id = AttributeId::new(self.current_id);
         let att = Attribute::new_empty(unique_id, att_type, domain, component_type, num_component);
         self.attributes.push(att);
@@ -62,47 +80,55 @@ impl MeshBuilder {
     pub fn build(self) -> Result<Mesh, Err> {
         self.dependency_check()?;
 
-        let Self { attributes, faces, .. } = self;
+        let Self {
+            attributes, faces, ..
+        } = self;
 
         let attributes = Self::get_sorted_attributes(attributes);
 
-        let faces = faces.into_iter()
+        let faces = faces
+            .into_iter()
             .map(|[a, b, c]| [PointIdx::from(a), PointIdx::from(b), PointIdx::from(c)])
             .collect::<Vec<_>>();
-        
+
         // Always perform vertex deduplication based on positions
-        let (mut attributes, faces) = Self::deduplicate_vertices_based_on_positions(attributes, faces)?;
-        
+        let (mut attributes, faces) =
+            Self::deduplicate_vertices_based_on_positions(attributes, faces)?;
+
         // Remove degenerate faces
-        let mut faces = faces.into_iter()
-            .filter(|f| f[0]!=f[1] && f[1]!=f[2] && f[2]!=f[0]) // filter out degenerate faces
+        let mut faces = faces
+            .into_iter()
+            .filter(|f| f[0] != f[1] && f[1] != f[2] && f[2] != f[0]) // filter out degenerate faces
             .collect::<Vec<_>>();
-    
+
         Self::remove_unused_vertices(&mut attributes, &mut faces)?;
 
-        Ok(
-            Mesh {
-                attributes,
-                faces,
-                ..Mesh::new()
-            }
-        )
+        Ok(Mesh {
+            attributes,
+            faces,
+            ..Mesh::new()
+        })
     }
-
 
     /// Checks if attributes have a valid dependency structure.
     fn dependency_check(&self) -> Result<(), Err> {
         // Check if all attributes has at least minimal dependencies
         for att in &self.attributes {
-            if let Some(d) = att.get_attribute_type()
+            if let Some(d) = att
+                .get_attribute_type()
                 .get_minimum_dependency()
                 .iter() // for each minimum dependency, ...
-                .find(|ty| 
+                .find(|ty| {
                     att.get_parents()
                         .iter() // for each parent id, ...
-                        .map(|parent_id| self.attributes.iter().find(|att| &att.get_id() == parent_id ).unwrap()) // for each parent attribute, ...
+                        .map(|parent_id| {
+                            self.attributes
+                                .iter()
+                                .find(|att| &att.get_id() == parent_id)
+                                .unwrap()
+                        }) // for each parent attribute, ...
                         .all(|parent| parent.get_attribute_type() != **ty)
-                ) 
+                })
             {
                 return Err(Err::MinimumDependencyError(att.get_attribute_type(), *d));
             }
@@ -110,12 +136,13 @@ impl MeshBuilder {
         Ok(())
     }
 
-
     /// Sorts the attributes in a way that the parent attributes are before their children.
     fn get_sorted_attributes(mut original: Vec<Attribute>) -> Vec<Attribute> {
         // Find position attribute if it exists
-        if let Some(pos_att_idx) = original.iter()
-            .position(|att| att.get_attribute_type() == AttributeType::Position) {
+        if let Some(pos_att_idx) = original
+            .iter()
+            .position(|att| att.get_attribute_type() == AttributeType::Position)
+        {
             original.swap(0, pos_att_idx); // Ensure Position attribute is first
         }
         // If no position attribute exists, we'll just return the attributes as-is
@@ -123,16 +150,20 @@ impl MeshBuilder {
 
         original
     }
-    
-    /// Removes unused vertices from the attributes. 
+
+    /// Removes unused vertices from the attributes.
     /// This is done by checking the connectivity (faces) and removing any vertices that are not referenced.
-    fn remove_unused_vertices(attributes: &mut Vec<Attribute>, faces: &mut Vec<[PointIdx; 3]>) -> Result<(), Err> {
+    fn remove_unused_vertices(
+        attributes: &mut Vec<Attribute>,
+        faces: &mut Vec<[PointIdx; 3]>,
+    ) -> Result<(), Err> {
         if faces.is_empty() || attributes.is_empty() {
             return Ok(());
         }
 
         // Find the maximum vertex index used in faces
-        let max_vertex_index = faces.iter()
+        let max_vertex_index = faces
+            .iter()
             .flat_map(|face| face.iter())
             .copied()
             .max()
@@ -147,7 +178,8 @@ impl MeshBuilder {
                 }
             }
         }
-        let mut unused_vertices: Vec<usize> = used_vertices.iter()
+        let mut unused_vertices: Vec<usize> = used_vertices
+            .iter()
             .enumerate()
             .filter_map(|(idx, &used)| if !used { Some(idx) } else { None })
             .collect();
@@ -184,23 +216,26 @@ impl MeshBuilder {
             }
         }
 
-
         Ok(())
     }
 
-
     /// Deduplicate vertices by combining all attribute values and creating a mapping
     /// Only processes Position domain attributes - Corner domain attributes are left unchanged
-    fn deduplicate_vertices_based_on_positions(attributes: Vec<Attribute>, faces: Vec<[PointIdx; 3]>) -> Result<(Vec<Attribute>, Vec<[PointIdx; 3]>), Err> {
+    fn deduplicate_vertices_based_on_positions(
+        attributes: Vec<Attribute>,
+        faces: Vec<[PointIdx; 3]>,
+    ) -> Result<(Vec<Attribute>, Vec<[PointIdx; 3]>), Err> {
         if attributes.is_empty() {
             return Ok((attributes, faces));
         }
 
-        let num_vertices = faces.iter()
+        let num_vertices = faces
+            .iter()
             .flat_map(|face| face.iter())
             .map(|&point_idx| usize::from(point_idx))
             .max()
-            .unwrap_or(0) + 1; // +1 because PointIdx is zero-based
+            .unwrap_or(0)
+            + 1; // +1 because PointIdx is zero-based
         if num_vertices == 0 {
             return Ok((attributes, faces));
         }
@@ -215,7 +250,7 @@ impl MeshBuilder {
         for point_idx in 0..num_vertices {
             let point_idx = PointIdx::from(point_idx);
             let vertex_hash = Self::hash_vertex(&attributes, point_idx);
-            
+
             if let Some(&existing_idx) = unique_points.get(&vertex_hash) {
                 // Vertex already exists, map to existing index
                 point_mapping.push(existing_idx);
@@ -237,12 +272,14 @@ impl MeshBuilder {
         let mut remapped_attributes = Vec::with_capacity(attributes.len());
         for attribute in attributes {
             // Remap Position domain attributes
-            let remapped_attribute = Self::remap_attribute(attribute, &point_mapping, unique_count)?;
+            let remapped_attribute =
+                Self::remap_attribute(attribute, &point_mapping, unique_count)?;
             remapped_attributes.push(remapped_attribute);
         }
 
         // Remap faces
-        let remapped_faces: Vec<[PointIdx; 3]> = faces.into_iter()
+        let remapped_faces: Vec<[PointIdx; 3]> = faces
+            .into_iter()
             .map(|[a, b, c]| [point_mapping[a], point_mapping[b], point_mapping[c]])
             .collect();
 
@@ -253,38 +290,41 @@ impl MeshBuilder {
     /// Only considers the provided attributes (typically Position domain attributes)
     fn hash_vertex(attributes: &[Attribute], point_idx: PointIdx) -> VertexHash {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        
+
         for attribute in attributes {
             if usize::from(point_idx) < attribute.len() {
                 // Hash the attribute type and metadata
                 attribute.get_attribute_type().hash(&mut hasher);
                 attribute.get_component_type().hash(&mut hasher);
                 attribute.get_num_components().hash(&mut hasher);
-                
+
                 // Hash the raw bytes of the vertex data
                 let component_size = attribute.get_component_type().size();
                 let num_components = attribute.get_num_components();
                 let value_size = component_size * num_components;
                 let value_idx = attribute.get_unique_val_idx(point_idx);
                 // Get raw bytes for this vertex
-                let vertex_bytes = &attribute.get_data_as_bytes() [
-                    usize::from(value_idx) * value_size..
-                    usize::from(value_idx) * value_size + value_size
-                ];
+                let vertex_bytes = &attribute.get_data_as_bytes()[usize::from(value_idx)
+                    * value_size
+                    ..usize::from(value_idx) * value_size + value_size];
                 vertex_bytes.hash(&mut hasher);
             }
         }
-        
+
         VertexHash(hasher.finish())
     }
 
     /// Remap an attribute according to the vertex mapping by creating a new attribute
-    fn remap_attribute(mut attribute: Attribute, point_mapping: &VecPointIdx<PointIdx>, unique_count: usize) -> Result<Attribute, Err> {
+    fn remap_attribute(
+        mut attribute: Attribute,
+        point_mapping: &VecPointIdx<PointIdx>,
+        unique_count: usize,
+    ) -> Result<Attribute, Err> {
         // If no deduplication is needed, return the original attribute
         if unique_count == attribute.len() {
             return Ok(attribute);
         }
-        
+
         // Find the first occurrence of each unique vertex to create reverse mapping
         let mut reverse_mapping = VecPointIdx::from(vec![PointIdx::from(0); unique_count]);
         for (old_idx, &new_idx) in point_mapping.iter().enumerate() {
@@ -293,86 +333,91 @@ impl MeshBuilder {
             }
         }
 
-        let mut points_met = VecPointIdx::from( vec![false; unique_count] );
+        let mut points_met = VecPointIdx::from(vec![false; unique_count]);
         let removed_vertices: Vec<usize> = (0..point_mapping.len())
-            .filter(|&v|
+            .filter(|&v| {
                 if points_met[point_mapping[PointIdx::from(v)]] {
                     true
                 } else {
                     points_met[point_mapping[PointIdx::from(v)]] = true;
                     false
                 }
-            ).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         // Create new attribute by extracting unique vertices
         // We'll handle this by copying data element by element
-        match (attribute.get_component_type(), attribute.get_num_components()) {
+        match (
+            attribute.get_component_type(),
+            attribute.get_num_components(),
+        ) {
             (ComponentDataType::F32, 3) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
-                    attribute.remove::<NdVector<3,f32>,3>(p);
+                    attribute.remove::<NdVector<3, f32>, 3>(p);
                 }
-            },
+            }
             (ComponentDataType::F32, 2) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<NdVector<2, f32>, 2>(p);
                 }
-            },
+            }
             (ComponentDataType::F32, 1) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<f32, 1>(p);
                 }
-            },
+            }
             (ComponentDataType::F32, 4) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<NdVector<4, f32>, 4>(p);
                 }
-            },
+            }
             (ComponentDataType::U32, 1) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<u32, 1>(p);
                 }
-            },
+            }
             (ComponentDataType::I32, 1) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<i32, 1>(p);
                 }
-            },
+            }
             (ComponentDataType::I8, 1) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<i8, 1>(p);
                 }
-            },
+            }
             (ComponentDataType::U16, 1) => {
                 for p in removed_vertices.into_iter().rev() {
                     // Remove the vertex from the mapping
                     let p = PointIdx::from(p);
                     attribute.remove::<u16, 1>(p);
                 }
-            },
-            _ => return Err(Err::DeduplicationError(format!(
-                "Unsupported attribute type combination: {:?} with {} components",
-                attribute.get_component_type(),
-                attribute.get_num_components()
-            )))
+            }
+            _ => {
+                return Err(Err::DeduplicationError(format!(
+                    "Unsupported attribute type combination: {:?} with {} components",
+                    attribute.get_component_type(),
+                    attribute.get_num_components()
+                )))
+            }
         };
         Ok(attribute)
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct VertexHash(u64);
@@ -391,10 +436,9 @@ pub enum Err {
 
     #[error("One of the attributes does not meet the minimum dependency; {:?} must depend on {:?}.", .0, .1)]
     MinimumDependencyError(AttributeType, AttributeType),
-    
+
     #[error("The connectivity attribute and the position attribute are not compatible; the connectivity attribute has a maximum index of {0} and the position attribute has a length of {1}.")]
     PositionAndConnectivityNotCompatible(usize, usize),
-
 }
 
 #[cfg(test)]
@@ -404,23 +448,20 @@ mod tests {
 
     #[test]
     fn test_with_tetrahedron() {
-        let faces = [[0,1,2], [3,4,5], [6,7,8], [9,10,11]];
+        let faces = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]];
         let pos = vec![
             NdVector::from([0.0f32, 0.0, 0.0]),
             NdVector::from([1.0f32, 0.0, 0.0]),
             NdVector::from([2.0f32, 0.0, 0.0]),
-            
             NdVector::from([0.0f32, 0.0, 0.0]),
             NdVector::from([3.0f32, 0.0, 0.0]),
             NdVector::from([1.0f32, 0.0, 0.0]),
-            
             NdVector::from([1.0f32, 0.0, 0.0]),
             NdVector::from([3.0f32, 0.0, 0.0]),
             NdVector::from([2.0f32, 0.0, 0.0]),
-
             NdVector::from([0.0f32, 0.0, 0.0]),
             NdVector::from([2.0f32, 0.0, 0.0]),
-            NdVector::from([3.0f32, 0.0, 0.0]),            
+            NdVector::from([3.0f32, 0.0, 0.0]),
         ];
         let mut builder = MeshBuilder::new();
         builder.set_connectivity_attribute(faces.to_vec());
@@ -432,7 +473,15 @@ mod tests {
         );
         let mesh = builder.build().expect("Failed to build mesh");
         assert_eq!(mesh.get_faces().len(), 4, "Mesh should have 4 faces");
-        assert_eq!(mesh.get_attributes().len(), 1, "Mesh should have 1 attribute");
-        assert_eq!(mesh.get_attributes()[0].len(), 4, "Position attribute should have 4 vertices as duplicates are merged");
+        assert_eq!(
+            mesh.get_attributes().len(),
+            1,
+            "Mesh should have 1 attribute"
+        );
+        assert_eq!(
+            mesh.get_attributes()[0].len(),
+            4,
+            "Position attribute should have 4 vertices as duplicates are merged"
+        );
     }
 }

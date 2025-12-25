@@ -8,24 +8,24 @@ pub struct MeshParallelogramPrediction<'parents, C, const N: usize> {
     corner_table: &'parents C,
 }
 
-impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshParallelogramPrediction<'parents, C, N> 
-    where 
-        C: GenericCornerTable,
-        NdVector<N, i32>: Vector<N, Component = i32>,
+impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N>
+    for MeshParallelogramPrediction<'parents, C, N>
+where
+    C: GenericCornerTable,
+    NdVector<N, i32>: Vector<N, Component = i32>,
 {
     const ID: u32 = 2;
-    
+
     type AdditionalDataForMetadata = ();
-	
-	fn new(_parents: &[&'parents Attribute], corner_table: &'parents C ) -> Self {
-        Self {
-            corner_table,
-        }
+
+    fn new(_parents: &[&'parents Attribute], corner_table: &'parents C) -> Self {
+        Self { corner_table }
     }
-	
-	fn get_values_impossible_to_predict(&mut self, _seq: &mut Vec<std::ops::Range<usize>>) 
-        -> Vec<std::ops::Range<usize>>
-    {
+
+    fn get_values_impossible_to_predict(
+        &mut self,
+        _seq: &mut Vec<std::ops::Range<usize>>,
+    ) -> Vec<std::ops::Range<usize>> {
         unimplemented!();
         // let mut is_already_encoded: Vec<bool> = Vec::new();
         // let mut vertices_without_parallelogram: Vec<ops::Range<usize>> = Vec::new();
@@ -37,7 +37,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
         //         .filter(|&&v| v>=is_already_encoded.len() || !is_already_encoded[v])
         //         .count();
         //     if num_unvisited_vertices == 3 {
-        //         // In the standard edgebreaker decoding, only unpredictable faces are 
+        //         // In the standard edgebreaker decoding, only unpredictable faces are
         //         // the first ones getting encoded among a connected component.
         //         // In the reverse-play decoding, only unpredictable faces are
         //         // the ones that correspond to the 'E' symbol.
@@ -112,8 +112,8 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
         //         };
         //         continue;
         //     }
-        //     // The following cases are impossible since the 'seq' contains 'merged': 
-            
+        //     // The following cases are impossible since the 'seq' contains 'merged':
+
         //     // [    m    )
         //     //    [    r    )
         //     debug_assert!(!(r.start > m.start && r.start < m.end && r.end > m.end));
@@ -126,7 +126,6 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
         //     //   [  r  )
         //     debug_assert!(!(r.start < m.start && r.end > m.start && r.end < m.end));
 
-            
         //     // The following cases are the only possibilities:
 
         //     // [  m  )
@@ -152,7 +151,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
         //     // [  r  )
         //     else if r == *m {
         //         new_seq.pop();
-                
+
         //         r = if let Some(r) = seq_iter.next() {
         //             r
         //         } else {
@@ -177,37 +176,44 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
         //         };
         //     }
         // }
-        
+
         // mem::swap(seq, &mut new_seq);
 
         // merged
     }
-	
-	fn predict(
-		&mut self,
+
+    fn predict(
+        &mut self,
         c: CornerIdx,
-		vertices_up_till_now: &[VertexIdx],
+        vertices_up_till_now: &[VertexIdx],
         attribute: &Attribute,
-	) -> NdVector<N, i32> {
+    ) -> NdVector<N, i32> {
         // Find the the most recent opposite corner.
         // 'diagonal' is the vertex opposite to 'i', and 'a' and 'b' are the other points
         // so that 'a', 'i', 'b', and 'diagonal' form a parallelogram.
-        let [a,b,diagonal] = {
+        let [a, b, diagonal] = {
             if let Some(opp) = self.corner_table.opposite(c) {
                 let opp_v = self.corner_table.vertex_idx(opp);
                 let next_v = self.corner_table.vertex_idx(self.corner_table.next(c));
                 let prev_v = self.corner_table.vertex_idx(self.corner_table.previous(c));
-                if vertices_up_till_now.contains(&opp_v) 
+                if vertices_up_till_now.contains(&opp_v)
                     && vertices_up_till_now.contains(&next_v)
                     && vertices_up_till_now.contains(&prev_v)
                 {
                     // we found the opposite corner
-                    [self.corner_table.next(c), self.corner_table.previous(c), opp]
+                    [
+                        self.corner_table.next(c),
+                        self.corner_table.previous(c),
+                        opp,
+                    ]
                 } else {
                     // If there is no opposite corner, then we cannot do the parallelogram prediction.
                     // return the most recent value instead.
                     return if let Some(&last_v) = vertices_up_till_now.last() {
-                        attribute.get(self.corner_table.point_idx(self.corner_table.left_most_corner(last_v)))
+                        attribute.get(
+                            self.corner_table
+                                .point_idx(self.corner_table.left_most_corner(last_v)),
+                        )
                     } else {
                         // If there are no vertices or corners up till now, return a zero vector.
                         NdVector::<N, i32>::zero()
@@ -217,21 +223,24 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
                 // If there is no opposite corner, then we cannot do the parallelogram prediction.
                 // return the most recent value instead.
                 return if let Some(&last_v) = vertices_up_till_now.last() {
-                    attribute.get(self.corner_table.point_idx(self.corner_table.left_most_corner(last_v)))
+                    attribute.get(
+                        self.corner_table
+                            .point_idx(self.corner_table.left_most_corner(last_v)),
+                    )
                 } else {
                     // If there are no vertices or corners up till now, return a zero vector.
                     NdVector::<N, i32>::zero()
                 };
             }
         };
-        
+
         let diagonal = self.corner_table.point_idx(diagonal);
         let a = self.corner_table.point_idx(a);
         let b = self.corner_table.point_idx(b);
 
-        let a_coord = attribute.get::<NdVector<N,i32>, N>(a).clone();
-        let b_coord = attribute.get::<NdVector<N,i32>, N>(b).clone();
-        let diagonal_coord = attribute.get::<NdVector<N,i32>, N>(diagonal).clone();
+        let a_coord = attribute.get::<NdVector<N, i32>, N>(a).clone();
+        let b_coord = attribute.get::<NdVector<N, i32>, N>(b).clone();
+        let diagonal_coord = attribute.get::<NdVector<N, i32>, N>(diagonal).clone();
         let out = a_coord + b_coord - diagonal_coord;
         out
     }
@@ -244,8 +253,8 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
 
 //     use super::*;
 //     use crate::core::attribute::AttributeId;
-//     use crate::core::shared::{ConfigType, NdVector}; 
-//     use crate::encode::connectivity::{edgebreaker::{Config, Edgebreaker}, ConnectivityEncoder}; 
+//     use crate::core::shared::{ConfigType, NdVector};
+//     use crate::encode::connectivity::{edgebreaker::{Config, Edgebreaker}, ConnectivityEncoder};
 //     use crate::shared::attribute::prediction_scheme::PredictionSchemeImpl;
 
 //     #[test]
@@ -253,15 +262,15 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
 //         // create a mesh that is a disjoint union of two meshes
 //         let faces = {
 //             let mut torus_in_decoded_order = vec![
-//                 [0,1,2], [1,3,4], [0,1,3], [0,3,5], [2,6,7], [4,7,8], [6,7,8], [5,6,8], 
-//                 [5,8,9], [0,5,9], [0,9,10], [0,2,10], [2,7,10], [7,10,11], [4,7,11], [3,4,11], 
-//                 [3,11,12], [3,5,12], [5,6,12], [6,12,13], [2,6,13], [1,2,13], [1,13,14], [1,4,14], 
+//                 [0,1,2], [1,3,4], [0,1,3], [0,3,5], [2,6,7], [4,7,8], [6,7,8], [5,6,8],
+//                 [5,8,9], [0,5,9], [0,9,10], [0,2,10], [2,7,10], [7,10,11], [4,7,11], [3,4,11],
+//                 [3,11,12], [3,5,12], [5,6,12], [6,12,13], [2,6,13], [1,2,13], [1,13,14], [1,4,14],
 //                 [4,8,14], [8,9,14], [9,14,15], [9,10,15], [10,11,15], [11,12,15], [12,13,15], [13,14,15]
 //             ];
 
 //             let mut square_in_decoded_order = vec![
-//                 [0,1,2], [3,4,5], [4,6,7], [3,4,6], [3,6,8], [3,8,9], [8,9,10], [9,10,11], 
-//                 [10,11,12], [11,12,13], [1,11,13], [1,13,14], [0,1,14], [0,14,15], [15,16,17], [0,15,16], 
+//                 [0,1,2], [3,4,5], [4,6,7], [3,4,6], [3,6,8], [3,8,9], [8,9,10], [9,10,11],
+//                 [10,11,12], [11,12,13], [1,11,13], [1,13,14], [0,1,14], [0,14,15], [15,16,17], [0,15,16],
 //                 [0,16,18], [0,2,18], [2,18,19], [20,21,22], [19,20,21], [2,19,21], [2,21,23], [1,2,23],
 //                 [1,11,23], [9,11,23], [9,23,24], [3,9,24], [3,5,24], [5,22,24], [21,22,24], [21,23,24]
 //             ];
@@ -296,7 +305,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
 //             &parents[0],
 //             &parents[1]
 //         ];
-        
+
 //         let mut mesh_prediction = MeshParallelogramPrediction::<NdVector<3, f32>>::new(&parents);
 //         let mut seq = vec![0..points_len];
 //         let impossible_to_predict = mesh_prediction.get_values_impossible_to_predict(&mut seq);
@@ -362,7 +371,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
 //             ];
 //             let mut sorted_points = vec![NdVector::zero(); points_len];
 //             for (i, f)in map.into_iter().enumerate() {
-//                 sorted_points[f] = points[i]; 
+//                 sorted_points[f] = points[i];
 //             }
 //             sorted_points
 //         };
@@ -379,7 +388,6 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
 //         let result = encoder.encode_connectivity(&mut faces, &mut [&mut point_att], &mut writer);
 //         assert!(result.is_ok());
 
-
 //         let parent = Attribute::from_faces(
 //                 AttributeId::new(0),
 //                 faces.to_vec(),
@@ -394,7 +402,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshP
 //         let impossible_to_predict = mesh_prediction.get_values_impossible_to_predict(&mut seq);
 
 //         assert_eq!(impossible_to_predict, vec![0..8, 16..18, 20..23]); // faces corresponding to the 'E's
-        
+
 //         let mut points_up_till_now = {
 //             // fill the answer for the vertices that are impossible to predict
 //             let mut out = vec![NdVector::from([0.0, 0.0, 0.0]); points_len];

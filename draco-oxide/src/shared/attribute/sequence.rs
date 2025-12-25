@@ -2,8 +2,9 @@ use crate::core::corner_table::GenericCornerTable;
 use crate::core::shared::{CornerIdx, VertexIdx};
 
 #[derive(Debug, Clone)]
-pub(crate) struct Traverser<'ct, CornerTableType> 
-    where CornerTableType: GenericCornerTable
+pub(crate) struct Traverser<'ct, CornerTableType>
+where
+    CornerTableType: GenericCornerTable,
 {
     corner_table: &'ct CornerTableType,
     visited_vertices: Vec<bool>,
@@ -12,8 +13,9 @@ pub(crate) struct Traverser<'ct, CornerTableType>
     out: Vec<CornerIdx>,
 }
 
-impl<'ct, T> Traverser<'ct, T> 
-    where T: GenericCornerTable
+impl<'ct, T> Traverser<'ct, T>
+where
+    T: GenericCornerTable,
 {
     /// Creates a new `Traverser` instance.
     /// # Arguments
@@ -33,7 +35,6 @@ impl<'ct, T> Traverser<'ct, T>
         }
     }
 
-
     pub(crate) fn is_vertex_visited(&self, v: VertexIdx) -> bool {
         self.visited_vertices[usize::from(v)]
     }
@@ -47,7 +48,7 @@ impl<'ct, T> Traverser<'ct, T>
 
     pub(crate) fn compute_seqeunce(mut self) -> Vec<CornerIdx> {
         while let Some(curr_corner) = self.corner_traversal_stack.pop() {
-            // If the face has not yet been visited, then the 
+            // If the face has not yet been visited, then the
             // other vertices of the face are not visited yet either. If this is the case, then
             // we need to store them in self.next_outputs_stack so that they will get processed first.
             let v = self.corner_table.vertex_idx(curr_corner);
@@ -67,7 +68,6 @@ impl<'ct, T> Traverser<'ct, T>
                 continue;
             }
 
-
             // Coming here means that we are visiting a new face.
             let face_idx = self.corner_table.face_idx_containing(curr_corner);
             self.visited_faces[usize::from(face_idx)] = true;
@@ -77,7 +77,7 @@ impl<'ct, T> Traverser<'ct, T>
                 self.visit(v, curr_corner);
                 if !self.corner_table.is_on_boundary(v) {
                     self.corner_traversal_stack.push(
-                        self.corner_table.get_right_corner(curr_corner).unwrap() // It is guaranteed to exist because the current corner is unvisited and not on a boundary
+                        self.corner_table.get_right_corner(curr_corner).unwrap(), // It is guaranteed to exist because the current corner is unvisited and not on a boundary
                     );
                     continue;
                 }
@@ -102,7 +102,7 @@ impl<'ct, T> Traverser<'ct, T>
                         }
                     }
                 } else {
-                    // Left face is unvisited or does not exist. 
+                    // Left face is unvisited or does not exist.
                     // check whether the left face is a handle.
                     for i in (0..self.corner_traversal_stack.len()).rev() {
                         let c = self.corner_traversal_stack[i];
@@ -111,7 +111,7 @@ impl<'ct, T> Traverser<'ct, T>
                             // ToDo: Consider adding break here
                         }
                     }
-                    
+
                     // We need to traverse the left face if it exists.
                     if let Some(lc) = left_corner {
                         self.corner_traversal_stack.push(lc);
@@ -135,7 +135,7 @@ impl<'ct, T> Traverser<'ct, T>
                         self.corner_traversal_stack.push(rc);
                     }
                 } else {
-                    // Both neighboring faces are unvisited, or the neighborig faces may not exist. 
+                    // Both neighboring faces are unvisited, or the neighborig faces may not exist.
                     // If there are neighboring faces, then we need to traverse them.
                     // The right corner must be traversed first.
                     if let Some(lc) = left_corner {
@@ -151,58 +151,73 @@ impl<'ct, T> Traverser<'ct, T>
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::shared::ConfigType;
     use crate::encode::connectivity::ConnectivityEncoderOutput;
     use crate::{encode::connectivity::encode_connectivity, io::obj::load_obj};
-    use crate::core::shared::ConfigType;
 
     #[test]
     fn test_traverser() {
         let mut mesh = load_obj("tests/data/tetrahedron.obj").unwrap();
         let out: crate::encode::connectivity::ConnectivityEncoderOutput<'_> = encode_connectivity(
-            &mesh.faces, 
-            &mut mesh.attributes, 
-            &mut Vec::new(), 
-            &crate::encode::Config::default()
-        ).unwrap();
+            &mesh.faces,
+            &mut mesh.attributes,
+            &mut Vec::new(),
+            &crate::encode::Config::default(),
+        )
+        .unwrap();
 
         let (ct, corners) = if let ConnectivityEncoderOutput::Edgebreaker(edgebreaker_out) = out {
-            (edgebreaker_out.corner_table, edgebreaker_out.corners_of_edgebreaker)
+            (
+                edgebreaker_out.corner_table,
+                edgebreaker_out.corners_of_edgebreaker,
+            )
         } else {
             panic!("Expected Edgebreaker Output");
         };
 
         let ct_pos = ct.universal_corner_table();
-        let sequence_points = Traverser::new(
-            ct_pos,
-            corners.clone(),
-        ).compute_seqeunce().iter().map(|c| ct_pos.point_idx(*c)).collect::<Vec<_>>();
+        let sequence_points = Traverser::new(ct_pos, corners.clone())
+            .compute_seqeunce()
+            .iter()
+            .map(|c| ct_pos.point_idx(*c))
+            .collect::<Vec<_>>();
         assert_eq!(
-            sequence_points.into_iter().map(|c| usize::from(c)).collect::<Vec<_>>(), 
-            vec![3,1,0,2]
+            sequence_points
+                .into_iter()
+                .map(|c| usize::from(c))
+                .collect::<Vec<_>>(),
+            vec![3, 1, 0, 2]
         );
 
         let ct_nor = &ct.attribute_corner_table(1).unwrap();
-        let sequence_normals = Traverser::new(
-            ct_nor,
-            corners.clone(),
-        ).compute_seqeunce().iter().map(|c| ct_nor.point_idx(*c)).collect::<Vec<_>>();
+        let sequence_normals = Traverser::new(ct_nor, corners.clone())
+            .compute_seqeunce()
+            .iter()
+            .map(|c| ct_nor.point_idx(*c))
+            .collect::<Vec<_>>();
         assert_eq!(
-            sequence_normals.into_iter().map(|c| usize::from(c)).collect::<Vec<_>>(), 
-            vec![3,1,0,2]
+            sequence_normals
+                .into_iter()
+                .map(|c| usize::from(c))
+                .collect::<Vec<_>>(),
+            vec![3, 1, 0, 2]
         );
 
         let ct_tex = &ct.attribute_corner_table(2).unwrap();
-        let sequence_tex_coords = Traverser::new(
-            ct_tex,
-            corners,
-        ).compute_seqeunce().iter().map(|c| ct_tex.point_idx(*c)).collect::<Vec<_>>();
+        let sequence_tex_coords = Traverser::new(ct_tex, corners)
+            .compute_seqeunce()
+            .iter()
+            .map(|c| ct_tex.point_idx(*c))
+            .collect::<Vec<_>>();
         assert_eq!(
-            sequence_tex_coords.into_iter().map(|c| usize::from(c)).collect::<Vec<_>>(), 
-            vec![3,1,0,2,5,4]
+            sequence_tex_coords
+                .into_iter()
+                .map(|c| usize::from(c))
+                .collect::<Vec<_>>(),
+            vec![3, 1, 0, 2, 5, 4]
         );
     }
 }

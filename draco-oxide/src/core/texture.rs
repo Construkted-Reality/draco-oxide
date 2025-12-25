@@ -1,23 +1,24 @@
-use std::usize;
 use std::collections::HashSet;
+use std::usize;
 
 use crate::core::material::MaterialLibrary;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct Texture {
-    img: Image
+    img: Image,
 }
 
 impl Texture {
     pub(crate) fn new() -> Self {
-        Self {
-            img: Image::new(),
-        }
+        Self { img: Image::new() }
     }
-    pub(crate) fn set_source_image(&mut self, img: Image) { self.img = img }
-    pub(crate) fn get_source_image(&self) -> &Image {& self.img }
+    pub(crate) fn set_source_image(&mut self, img: Image) {
+        self.img = img
+    }
+    pub(crate) fn get_source_image(&self) -> &Image {
+        &self.img
+    }
 }
-
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct Image {
@@ -27,26 +28,37 @@ pub(crate) struct Image {
 }
 
 impl Image {
-    pub(crate) fn new() -> Self { Self {
-        filename: String::new(),
-        mime_type: String::new(),
-        encoded_data: Vec::new(),
-    } }
+    pub(crate) fn new() -> Self {
+        Self {
+            filename: String::new(),
+            mime_type: String::new(),
+            encoded_data: Vec::new(),
+        }
+    }
 
-    
     // Sets the name of the source image file.
-    pub(crate) fn set_filename(&mut self, filename: String) { self.filename = filename; }
-    
-    
-    pub(crate) fn get_filename(&self) -> &String { &self.filename }
-    
-    pub(crate) fn set_mime_type(&mut self, mime_type: String) { self.mime_type = mime_type; }
-    pub(crate) fn get_mime_type(&self) -> &String { &self.mime_type }
-    
-    pub(crate) fn get_encoded_data_mut(&mut self) -> &mut Vec<u8> { &mut self.encoded_data }
-    pub(crate) fn get_encoded_data(&self) -> &Vec<u8> { &self.encoded_data }
-}
+    pub(crate) fn set_filename(&mut self, filename: String) {
+        self.filename = filename;
+    }
 
+    pub(crate) fn get_filename(&self) -> &String {
+        &self.filename
+    }
+
+    pub(crate) fn set_mime_type(&mut self, mime_type: String) {
+        self.mime_type = mime_type;
+    }
+    pub(crate) fn get_mime_type(&self) -> &String {
+        &self.mime_type
+    }
+
+    pub(crate) fn get_encoded_data_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.encoded_data
+    }
+    pub(crate) fn get_encoded_data(&self) -> &Vec<u8> {
+        &self.encoded_data
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct TextureLibrary {
@@ -112,7 +124,7 @@ pub(crate) enum AxisWrappingMode {
     // Texture is repeated along a texture axis in a mirrored pattern.
     MirroredRepeat,
     // Texture is repeated along a texture axis (tiled textures).
-    Repeat
+    Repeat,
 }
 
 impl AxisWrappingMode {
@@ -127,16 +139,24 @@ impl AxisWrappingMode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate)  struct WrappingMode {
+pub(crate) struct WrappingMode {
     s: AxisWrappingMode,
     t: AxisWrappingMode,
 }
 
 impl WrappingMode {
-    pub fn new(s: AxisWrappingMode, t: AxisWrappingMode) -> Self {Self{s, t}}
-    pub fn new_with_single_mode(mode: AxisWrappingMode) -> Self {Self{s: mode, t: mode}}
-    pub fn s(&self) -> AxisWrappingMode {self.s}
-    pub fn t(&self) -> AxisWrappingMode {self.t}
+    pub fn new(s: AxisWrappingMode, t: AxisWrappingMode) -> Self {
+        Self { s, t }
+    }
+    pub fn new_with_single_mode(mode: AxisWrappingMode) -> Self {
+        Self { s: mode, t: mode }
+    }
+    pub fn s(&self) -> AxisWrappingMode {
+        self.s
+    }
+    pub fn t(&self) -> AxisWrappingMode {
+        self.t
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -147,7 +167,7 @@ pub(crate) enum FilterType {
     NearestMipmapNearest,
     LinearMipmapNearest,
     NearestMipmapLinear,
-    LinearMipmapLinear
+    LinearMipmapLinear,
 }
 
 impl FilterType {
@@ -164,7 +184,6 @@ impl FilterType {
         }
     }
 }
-
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct TextureMap {
@@ -191,14 +210,17 @@ impl TextureMap {
     }
 
     pub(crate) fn set_properties(
-        &mut self, ty: Type, 
-        wrapping_mode: Option<WrappingMode>, 
-        tex_coord_index: Option<isize>, 
-        min_filter: Option<FilterType>, 
-        mag_filter: Option<FilterType>
+        &mut self,
+        ty: Type,
+        wrapping_mode: Option<WrappingMode>,
+        tex_coord_index: Option<isize>,
+        min_filter: Option<FilterType>,
+        mag_filter: Option<FilterType>,
     ) {
         self.ty = ty;
-        self.wrapping_mode = wrapping_mode.unwrap_or(WrappingMode::new_with_single_mode(AxisWrappingMode::ClampToEdge));
+        self.wrapping_mode = wrapping_mode.unwrap_or(WrappingMode::new_with_single_mode(
+            AxisWrappingMode::ClampToEdge,
+        ));
         self.tex_coord_index = tex_coord_index.unwrap_or(0);
         self.min_filter = min_filter.unwrap_or(FilterType::Unspecified);
         self.mag_filter = mag_filter.unwrap_or(FilterType::Unspecified);
@@ -212,14 +234,22 @@ impl TextureMap {
         &self.transform
     }
 
-    pub(crate) fn get_texture(&self) -> &Texture { &self.texture }
-    pub(crate) fn get_wrapping_mode(&self) -> WrappingMode { self.wrapping_mode }
-    pub(crate) fn tex_coord_index(&self) -> isize { self.tex_coord_index }
-    pub(crate) fn min_filter(&self) -> FilterType { self.min_filter }
-    pub(crate) fn mag_filter(&self) -> FilterType { self.mag_filter }
+    pub(crate) fn get_texture(&self) -> &Texture {
+        &self.texture
+    }
+    pub(crate) fn get_wrapping_mode(&self) -> WrappingMode {
+        self.wrapping_mode
+    }
+    pub(crate) fn tex_coord_index(&self) -> isize {
+        self.tex_coord_index
+    }
+    pub(crate) fn min_filter(&self) -> FilterType {
+        self.min_filter
+    }
+    pub(crate) fn mag_filter(&self) -> FilterType {
+        self.mag_filter
+    }
 }
-
-
 
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct TextureTransform {
@@ -278,12 +308,19 @@ impl TextureTransform {
         self.tex_coord
     }
 
-    fn get_default_offset() -> [f64; 2] { return [0.0, 0.0]; }
-    fn get_default_rotation() -> f64 { return 0.0; }
-    fn get_default_scale() -> [f64; 2] { return [0.0, 0.0]; }
-    fn get_default_tex_coord() -> i32 { return -1; }
+    fn get_default_offset() -> [f64; 2] {
+        return [0.0, 0.0];
+    }
+    fn get_default_rotation() -> f64 {
+        return 0.0;
+    }
+    fn get_default_scale() -> [f64; 2] {
+        return [0.0, 0.0];
+    }
+    fn get_default_tex_coord() -> i32 {
+        return -1;
+    }
 }
-
 
 // Helper struct implementing various utilities operating on Texture.
 pub(crate) struct TextureUtils;
@@ -420,7 +457,10 @@ impl TextureUtils {
     ) -> Vec<&'a Texture> {
         let mut textures = HashSet::new();
         for i in 0..material_library.num_materials() {
-            if let Some(Some(texture_map)) = material_library.get_material(i).map(|m| m.get_texture_map_by_type(texture_type)) {
+            if let Some(Some(texture_map)) = material_library
+                .get_material(i)
+                .map(|m| m.get_texture_map_by_type(texture_type))
+            {
                 let texture_ref = texture_map.get_texture();
                 textures.insert(texture_ref as *const Texture);
             }
@@ -443,6 +483,10 @@ impl TextureUtils {
     // Helper: get lowercase extension from mime type string
     pub(crate) fn lowercase_mime_type_extension(mime_type: &str) -> String {
         // e.g. "image/png" -> "png"
-        mime_type.split('/').nth(1).map(|s| s.to_ascii_lowercase()).unwrap_or_default()
+        mime_type
+            .split('/')
+            .nth(1)
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default()
     }
 }

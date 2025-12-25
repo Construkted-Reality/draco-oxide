@@ -1,33 +1,33 @@
+use crate::core::attribute::Attribute;
 use crate::core::corner_table::GenericCornerTable;
+use crate::core::shared::{CornerIdx, Vector, VertexIdx};
 use crate::prelude::NdVector;
 use crate::shared::attribute::prediction_scheme::PredictionSchemeImpl;
-use crate::core::shared::{CornerIdx, Vector, VertexIdx};
-use crate::core::attribute::Attribute;  
 
 pub struct MeshMultiParallelogramPrediction<'parents, C, const N: usize> {
     #[allow(unused)] // TODO: Remove this field when the implementation is complete
     corner_table: &'parents C,
 }
 
-impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshMultiParallelogramPrediction<'parents, C, N> 
-    where 
-        C: GenericCornerTable,
-        NdVector<N, i32>: Vector<N, Component = i32>,
+impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N>
+    for MeshMultiParallelogramPrediction<'parents, C, N>
+where
+    C: GenericCornerTable,
+    NdVector<N, i32>: Vector<N, Component = i32>,
 {
     const ID: u32 = 3;
 
     type AdditionalDataForMetadata = ();
 
-    fn new(_parents: &[&'parents Attribute], corner_table:&'parents C ) -> Self {
-
-        Self {
-            corner_table,
-        }
+    fn new(_parents: &[&'parents Attribute], corner_table: &'parents C) -> Self {
+        Self { corner_table }
     }
 
-    fn get_values_impossible_to_predict(&mut self, _seq: &mut Vec<std::ops::Range<usize>>) -> Vec<std::ops::Range<usize>> {
+    fn get_values_impossible_to_predict(
+        &mut self,
+        _seq: &mut Vec<std::ops::Range<usize>>,
+    ) -> Vec<std::ops::Range<usize>> {
         unimplemented!();
-
 
         // let mut is_already_encoded: Vec<bool> = vec![false; self.corner_table.num_vertices()];
         // let mut vertices_without_parallelogram: Vec<ops::Range<usize>> = Vec::new();
@@ -39,7 +39,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //         .filter(|&&v| v>=is_already_encoded.len() || !is_already_encoded[v])
         //         .count();
         //     if num_unvisited_vertices == 3 {
-        //         // In the standard edgebreaker decoding, only unpredictable faces are 
+        //         // In the standard edgebreaker decoding, only unpredictable faces are
         //         // the first ones getting encoded among a connected component.
         //         // In the reverse-play decoding, only unpredictable faces are
         //         // the ones that correspond to the 'E' symbol.
@@ -114,8 +114,8 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //         };
         //         continue;
         //     }
-        //     // The following cases are impossible since the 'seq' contains 'merged': 
-            
+        //     // The following cases are impossible since the 'seq' contains 'merged':
+
         //     // [    m    )
         //     //    [    r    )
         //     debug_assert!(!(r.start > m.start && r.start < m.end && r.end > m.end));
@@ -128,7 +128,6 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //     //   [  r  )
         //     debug_assert!(!(r.start < m.start && r.end > m.start && r.end < m.end));
 
-            
         //     // The following cases are the only possibilities:
 
         //     // [  m  )
@@ -154,7 +153,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //     // [  r  )
         //     else if r == *m {
         //         new_seq.pop();
-                
+
         //         r = if let Some(r) = seq_iter.next() {
         //             r
         //         } else {
@@ -179,17 +178,17 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //         };
         //     }
         // }
-        
+
         // mem::swap(seq, &mut new_seq);
 
         // merged
     }
 
     fn predict(
-		&mut self,
-		_i: CornerIdx,
-		_vertices_processed_up_till_now: &[VertexIdx],
-		_attribute: &Attribute,
+        &mut self,
+        _i: CornerIdx,
+        _vertices_processed_up_till_now: &[VertexIdx],
+        _attribute: &Attribute,
     ) -> NdVector<N, i32> {
         unimplemented!();
         // // Find the the most recent opposite face.
@@ -209,7 +208,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //         }
         //         vertices_or_corners_processed_up_till_now.iter()
         //             .rev()
-        //             .filter_map(|&v| opp_corners.iter().find(|&&opp_c| 
+        //             .filter_map(|&v| opp_corners.iter().find(|&&opp_c|
         //                 self.corner_table.vertex_idx(opp_c)==v)
         //             )
         //             .map(|&c| [
@@ -221,7 +220,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
         //     } else {
         //         vec![[
         //             self.corner_table.vertex_idx(self.corner_table.next(start)),
-        //             self.corner_table.vertex_idx(self.corner_table.previous(start)), 
+        //             self.corner_table.vertex_idx(self.corner_table.previous(start)),
         //             self.corner_table.vertex_idx(self.corner_table.opposite(start).unwrap()),
         //         ]]
         //     }
@@ -242,17 +241,15 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
     }
 }
 
-
 // #[cfg(test)]
 // mod test {
 //     use std::vec;
 
 //     use super::*;
 //     use crate::core::attribute::AttributeId;
-//     use crate::core::shared::{ConfigType, NdVector}; 
-//     use crate::encode::connectivity::{edgebreaker::{Config, Edgebreaker}, ConnectivityEncoder}; 
+//     use crate::core::shared::{ConfigType, NdVector};
+//     use crate::encode::connectivity::{edgebreaker::{Config, Edgebreaker}, ConnectivityEncoder};
 //     use crate::shared::attribute::prediction_scheme::PredictionSchemeImpl;
-
 
 //     // #[test]
 //     fn test_predict() {
@@ -304,7 +301,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for MeshM
 //         let mut mesh_prediction = MeshMultiParallelogramPrediction::<NdVector<3, f32>>::new(&*atts);
 //         let mut seq = vec![0..points.len()];
 //         let impossible_to_predict = mesh_prediction.get_values_impossible_to_predict(&mut seq);
-        
+
 //         let mut points_up_till_now = {
 //             // fill the answer for the vertices that are impossible to predict
 //             let mut out = vec![NdVector::from([0.0, 0.0, 0.0]); points.len()];

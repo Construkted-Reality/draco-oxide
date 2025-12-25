@@ -12,7 +12,9 @@ pub struct DracoAttributeIds {
 
 impl DracoAttributeIds {
     pub fn new() -> Self {
-        Self { ids: HashMap::new() }
+        Self {
+            ids: HashMap::new(),
+        }
     }
 
     pub fn insert(&mut self, name: &str, id: u32) {
@@ -21,7 +23,10 @@ impl DracoAttributeIds {
 }
 
 pub fn is_draco_compressed(primitive: &Value) -> bool {
-    primitive.get("extensions").and_then(|e| e.get(EXTENSION_NAME)).is_some()
+    primitive
+        .get("extensions")
+        .and_then(|e| e.get(EXTENSION_NAME))
+        .is_some()
 }
 
 pub fn is_triangle_primitive(primitive: &Value) -> bool {
@@ -30,8 +35,13 @@ pub fn is_triangle_primitive(primitive: &Value) -> bool {
 
 pub fn primitive_mode_name(mode: u64) -> &'static str {
     match mode {
-        0 => "POINTS", 1 => "LINES", 2 => "LINE_LOOP", 3 => "LINE_STRIP",
-        4 => "TRIANGLES", 5 => "TRIANGLE_STRIP", 6 => "TRIANGLE_FAN",
+        0 => "POINTS",
+        1 => "LINES",
+        2 => "LINE_LOOP",
+        3 => "LINE_STRIP",
+        4 => "TRIANGLES",
+        5 => "TRIANGLE_STRIP",
+        6 => "TRIANGLE_FAN",
         _ => "UNKNOWN",
     }
 }
@@ -76,7 +86,8 @@ pub fn add_draco_extension(
 }
 
 fn clear_accessor_buffer_refs(json: &mut Value, accessor_idx: usize) {
-    if let Some(accessor) = json.get_mut("accessors")
+    if let Some(accessor) = json
+        .get_mut("accessors")
         .and_then(|a| a.get_mut(accessor_idx))
         .and_then(|a| a.as_object_mut())
     {
@@ -105,12 +116,18 @@ pub fn ensure_extension_declared(json: &mut Value) {
     }
 }
 
-pub fn add_buffer_view(json: &mut Value, buffer_idx: usize, byte_offset: usize, byte_length: usize) -> usize {
+pub fn add_buffer_view(
+    json: &mut Value,
+    buffer_idx: usize,
+    byte_offset: usize,
+    byte_length: usize,
+) -> usize {
     if json.get("bufferViews").is_none() {
         json["bufferViews"] = json!([]);
     }
 
-    let buffer_view = json!({ "buffer": buffer_idx, "byteOffset": byte_offset, "byteLength": byte_length });
+    let buffer_view =
+        json!({ "buffer": buffer_idx, "byteOffset": byte_offset, "byteLength": byte_length });
     let arr = json["bufferViews"].as_array_mut().unwrap();
     let idx = arr.len();
     arr.push(buffer_view);
@@ -118,7 +135,8 @@ pub fn add_buffer_view(json: &mut Value, buffer_idx: usize, byte_offset: usize, 
 }
 
 pub fn update_buffer_length(json: &mut Value, buffer_idx: usize, byte_length: usize) {
-    if let Some(buffer) = json.get_mut("buffers")
+    if let Some(buffer) = json
+        .get_mut("buffers")
         .and_then(|b| b.get_mut(buffer_idx))
         .and_then(|b| b.as_object_mut())
     {
@@ -127,19 +145,25 @@ pub fn update_buffer_length(json: &mut Value, buffer_idx: usize, byte_length: us
 }
 
 pub fn set_buffer_uri(json: &mut Value, buffer_idx: usize, uri: Option<&str>) {
-    if let Some(buffer) = json.get_mut("buffers")
+    if let Some(buffer) = json
+        .get_mut("buffers")
         .and_then(|b| b.get_mut(buffer_idx))
         .and_then(|b| b.as_object_mut())
     {
         match uri {
-            Some(u) => { buffer.insert("uri".to_string(), json!(u)); }
-            None => { buffer.remove("uri"); }
+            Some(u) => {
+                buffer.insert("uri".to_string(), json!(u));
+            }
+            None => {
+                buffer.remove("uri");
+            }
         }
     }
 }
 
 pub fn update_buffer_view_offset(json: &mut Value, buffer_view_idx: usize, new_offset: usize) {
-    if let Some(bv) = json.get_mut("bufferViews")
+    if let Some(bv) = json
+        .get_mut("bufferViews")
         .and_then(|b| b.get_mut(buffer_view_idx))
         .and_then(|b| b.as_object_mut())
     {
@@ -153,7 +177,8 @@ mod tests {
 
     #[test]
     fn test_is_draco_compressed() {
-        let compressed = json!({ "extensions": { "KHR_draco_mesh_compression": { "bufferView": 0 } } });
+        let compressed =
+            json!({ "extensions": { "KHR_draco_mesh_compression": { "bufferView": 0 } } });
         let uncompressed = json!({ "attributes": { "POSITION": 0 } });
         assert!(is_draco_compressed(&compressed));
         assert!(!is_draco_compressed(&uncompressed));

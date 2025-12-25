@@ -1,9 +1,14 @@
-pub(crate) mod attribute_corner_table;
 pub(crate) mod all_inclusive_corner_table;
+pub(crate) mod attribute_corner_table;
 
-use std::{collections::BTreeMap};
+use std::collections::BTreeMap;
 
-use crate::{core::shared::{AttributeValueIdx, CornerIdx, FaceIdx, PointIdx, VecCornerIdx, VecVertexIdx, VertexIdx}, prelude::Attribute};
+use crate::{
+    core::shared::{
+        AttributeValueIdx, CornerIdx, FaceIdx, PointIdx, VecCornerIdx, VecVertexIdx, VertexIdx,
+    },
+    prelude::Attribute,
+};
 
 pub(crate) trait GenericCornerTable {
     fn face_idx_containing(&self, corner: CornerIdx) -> FaceIdx;
@@ -18,7 +23,7 @@ pub(crate) trait GenericCornerTable {
     fn left_most_corner(&self, vertex: VertexIdx) -> CornerIdx;
 
     fn swing_right(&self, corner: CornerIdx) -> Option<CornerIdx> {
-        if let Some(c) = self.opposite(self.previous(corner)){
+        if let Some(c) = self.opposite(self.previous(corner)) {
             Some(self.previous(c))
         } else {
             None
@@ -26,21 +31,21 @@ pub(crate) trait GenericCornerTable {
     }
 
     fn swing_left(&self, corner: CornerIdx) -> Option<CornerIdx> {
-        if let Some(c) = self.opposite(self.next(corner)){
+        if let Some(c) = self.opposite(self.next(corner)) {
             Some(self.next(c))
         } else {
             None
         }
     }
-    
+
     fn is_on_boundary(&self, v: VertexIdx) -> bool {
         self.swing_left(self.left_most_corner(v)).is_none()
     }
-    
+
     fn get_left_corner(&self, corner: CornerIdx) -> Option<CornerIdx> {
         self.opposite(self.previous(corner))
     }
-    
+
     fn get_right_corner(&self, corner: CornerIdx) -> Option<CornerIdx> {
         self.opposite(self.next(corner))
     }
@@ -58,11 +63,11 @@ pub(crate) struct CornerTable<'mesh> {
     opposite_corners: VecCornerIdx<CornerIdx>,
 
     /// faces of the mesh.
-    mesh_faces: &'mesh [[PointIdx;3]],
+    mesh_faces: &'mesh [[PointIdx; 3]],
 
     /// Faces of the POSITION ATTRIBUTE.
     /// This is different from the faces of the mesh.
-    conn_faces: Vec<[VertexIdx;3]>,
+    conn_faces: Vec<[VertexIdx; 3]>,
 
     /// Number of corners in the mesh.
     num_corners: usize,
@@ -81,32 +86,35 @@ pub(crate) struct CornerTable<'mesh> {
 }
 
 impl<'mesh> CornerTable<'mesh> {
-    pub(crate) fn new(mesh_faces: &'mesh [[PointIdx;3]], pos_att: &Attribute) -> Self {
-        let conn_faces = mesh_faces.iter()
-            .map(|f| 
+    pub(crate) fn new(mesh_faces: &'mesh [[PointIdx; 3]], pos_att: &Attribute) -> Self {
+        let conn_faces = mesh_faces
+            .iter()
+            .map(|f| {
                 [
                     usize::from(pos_att.get_unique_val_idx(f[0])).into(),
                     usize::from(pos_att.get_unique_val_idx(f[1])).into(),
-                    usize::from(pos_att.get_unique_val_idx(f[2])).into()
+                    usize::from(pos_att.get_unique_val_idx(f[2])).into(),
                 ]
-            )
+            })
             .collect::<Vec<_>>();
-        let mut out  = Self {
+        let mut out = Self {
             opposite_corners: VecCornerIdx::new(), // will be computed later
             num_corners: mesh_faces.len() * 3,
             mesh_faces,
             conn_faces,
-            num_vertices: 0, // will be computed later
-            left_most_corners: VecVertexIdx::new(), // will be computed later
-            corner_to_vertex: BTreeMap::new(), // will be computed later
+            num_vertices: 0,                         // will be computed later
+            left_most_corners: VecVertexIdx::new(),  // will be computed later
+            corner_to_vertex: BTreeMap::new(),       // will be computed later
             non_manifold_vertex_parents: Vec::new(), // will be computed later
         };
 
         let unused_vertices = Self::get_unused_vertices(&out.conn_faces);
         if !unused_vertices.is_empty() {
-            panic!("Mesh contains unused vertices: {:?}. This is not supported by the corner table.", unused_vertices);
+            panic!(
+                "Mesh contains unused vertices: {:?}. This is not supported by the corner table.",
+                unused_vertices
+            );
         }
-
 
         out.compute_table();
         if Self::contains_non_manifold_edges(&out.conn_faces) {
@@ -118,8 +126,9 @@ impl<'mesh> CornerTable<'mesh> {
     }
 
     /// checks if the mesh has non-manifold edges.
-    fn contains_non_manifold_edges(faces: &[[VertexIdx;3]]) -> bool {
-        let mut edges = faces.iter()
+    fn contains_non_manifold_edges(faces: &[[VertexIdx; 3]]) -> bool {
+        let mut edges = faces
+            .iter()
             .flat_map(|f| {
                 let v0 = f[0];
                 let v1 = f[1];
@@ -127,12 +136,14 @@ impl<'mesh> CornerTable<'mesh> {
                 vec![[v0, v1], [v1, v2], [v2, v0]]
             })
             .collect::<Vec<_>>();
-        for e in &mut edges { e.sort(); }
+        for e in &mut edges {
+            e.sort();
+        }
         edges.sort();
         // count duplicates. If there is a triple of the same edge, it is non-manifold.
         let mut count = 1;
         for i in 1..edges.len() {
-            if edges[i] == edges[i-1] {
+            if edges[i] == edges[i - 1] {
                 count += 1;
                 if count > 2 {
                     return true; // found a non-manifold edge
@@ -194,10 +205,12 @@ impl<'mesh> CornerTable<'mesh> {
 
                             let opp_other_edge_c = self.opposite(other_edge_c);
                             if let Some(opp_edge_c) = opp_edge_c {
-                                self.opposite_corners[opp_edge_c] = default_opposite; // None
+                                self.opposite_corners[opp_edge_c] = default_opposite;
+                                // None
                             }
                             if let Some(opp_other_edge_c) = opp_other_edge_c {
-                                self.opposite_corners[opp_other_edge_c] = default_opposite; // None
+                                self.opposite_corners[opp_other_edge_c] = default_opposite;
+                                // None
                             }
 
                             self.opposite_corners[edge_c] = default_opposite;
@@ -211,10 +224,8 @@ impl<'mesh> CornerTable<'mesh> {
                         connectivity_updated = true;
                         break;
                     }
-                    let new_sink_vert: (VertexIdx, CornerIdx) = (
-                        self.corner_to_vert(self.previous(curr_c)),
-                        sink_c
-                    );
+                    let new_sink_vert: (VertexIdx, CornerIdx) =
+                        (self.corner_to_vert(self.previous(curr_c)), sink_c);
                     sink_vertices.push(new_sink_vert);
 
                     curr_c = if let Some(c) = self.swing_right(curr_c) {
@@ -233,7 +244,7 @@ impl<'mesh> CornerTable<'mesh> {
         }
     }
 
-    fn get_unused_vertices(faces: &[[VertexIdx;3]]) -> Vec<usize> {
+    fn get_unused_vertices(faces: &[[VertexIdx; 3]]) -> Vec<usize> {
         let num_vertices = {
             let num_vertices_minus_1 = *faces.iter().flatten().max().unwrap_or(&VertexIdx::from(0));
             usize::from(num_vertices_minus_1) + 1
@@ -244,7 +255,9 @@ impl<'mesh> CornerTable<'mesh> {
                 used_vertices[usize::from(v)] = true;
             }
         }
-        used_vertices.iter().enumerate()
+        used_vertices
+            .iter()
+            .enumerate()
             .filter_map(|(idx, &used)| if !used { Some(idx) } else { None })
             .collect()
     }
@@ -252,7 +265,8 @@ impl<'mesh> CornerTable<'mesh> {
     fn compute_table(&mut self) {
         let default_opposite = CornerIdx::from(usize::MAX);
         let default_vertex = VertexIdx::from(usize::MAX);
-        self.opposite_corners.resize(self.num_corners(), default_opposite);
+        self.opposite_corners
+            .resize(self.num_corners(), default_opposite);
         let mut num_corners_on_vertices = VecVertexIdx::with_capacity(self.num_corners());
 
         // Compute the number of corners on each vertex.
@@ -263,15 +277,17 @@ impl<'mesh> CornerTable<'mesh> {
             if usize::from(v1) >= num_corners_on_vertices.len() {
                 num_corners_on_vertices.resize(usize::from(v1) + 1, 0);
             }
-            num_corners_on_vertices[v1]+=1;
+            num_corners_on_vertices[v1] += 1;
         }
 
         // Array for storing half edges. (sink vertex, edge corner)
-        let mut vertex_edges: Vec<(VertexIdx, CornerIdx)> = vec![ (default_vertex, default_opposite); self.num_corners() ];
+        let mut vertex_edges: Vec<(VertexIdx, CornerIdx)> =
+            vec![(default_vertex, default_opposite); self.num_corners()];
 
         let mut offset = 0;
         // Compute the offset of the the earliest corner for each vertex.
-        let vertex_offset: VecVertexIdx<_> = (0..num_corners_on_vertices.len()).map(|i| {
+        let vertex_offset: VecVertexIdx<_> = (0..num_corners_on_vertices.len())
+            .map(|i| {
                 let i = VertexIdx::from(i);
                 let out = offset;
                 offset += num_corners_on_vertices[i];
@@ -306,10 +322,10 @@ impl<'mesh> CornerTable<'mesh> {
                     // opposite corner found.
                     // We need to remove the half edge from the vertex_edges.
                     if tip_v == self.vertex_idx(vertex_edges[offset].1) {
-                        continue; 
+                        continue;
                     }
                     opposite_c = vertex_edges[offset].1;
-                    for _ in i+1..num_corners_on_vert {
+                    for _ in i + 1..num_corners_on_vert {
                         vertex_edges[offset] = vertex_edges[offset + 1];
                         if vertex_edges[offset].0 == default_vertex {
                             break;
@@ -319,12 +335,12 @@ impl<'mesh> CornerTable<'mesh> {
                     vertex_edges[offset].0 = default_vertex;
                     break;
                 }
-                offset+=1;
+                offset += 1;
             }
             if opposite_c == default_opposite {
                 let num_corners_on_source_vert = num_corners_on_vertices[source_v];
                 let first_c = vertex_offset[source_v];
-                for corner in first_c..num_corners_on_source_vert+first_c {
+                for corner in first_c..num_corners_on_source_vert + first_c {
                     if vertex_edges[corner].0 == default_vertex {
                         vertex_edges[corner].0 = sink_v;
                         vertex_edges[corner].1 = c;
@@ -341,15 +357,16 @@ impl<'mesh> CornerTable<'mesh> {
 
     fn compute_left_most_corners(&mut self) {
         let default_corner = CornerIdx::from(usize::MAX);
-        self.left_most_corners.resize(self.num_vertices(), default_corner);
+        self.left_most_corners
+            .resize(self.num_vertices(), default_corner);
         let mut visited_vertices = VecVertexIdx::from(vec![false; self.num_vertices()]);
         let mut visited_corners = VecCornerIdx::from(vec![false; self.num_corners()]);
 
         {
-            let mut vertices = VecVertexIdx::from( vec![false; self.num_vertices()] );
+            let mut vertices = VecVertexIdx::from(vec![false; self.num_vertices()]);
             for f_idx in 0..self.get_mesh_faces().len() {
                 for i in 0..3 {
-                    let c = CornerIdx::from(3*f_idx + i);
+                    let c = CornerIdx::from(3 * f_idx + i);
                     let v = self.vertex_idx(c);
                     if !vertices[v] {
                         vertices[v] = true;
@@ -360,8 +377,10 @@ impl<'mesh> CornerTable<'mesh> {
 
         for f_idx in 0..self.get_mesh_faces().len() {
             for i in 0..3 {
-                let c = CornerIdx::from(3*f_idx + i);
-                if visited_corners[c] { continue; }
+                let c = CornerIdx::from(3 * f_idx + i);
+                if visited_corners[c] {
+                    continue;
+                }
 
                 let mut v = self.vertex_idx(c);
                 let mut is_non_manifold_vertex = false;
@@ -385,11 +404,11 @@ impl<'mesh> CornerTable<'mesh> {
                 }
 
                 // Swing all the way to the left
-                let mut maybe_act_c= self.swing_left(c);
+                let mut maybe_act_c = self.swing_left(c);
                 while let Some(act_c) = maybe_act_c {
                     if act_c == c {
                         // Reached back to the initial corner.
-                        break;  
+                        break;
                     }
                     visited_corners[act_c] = true;
                     self.left_most_corners[v] = act_c;
@@ -399,7 +418,7 @@ impl<'mesh> CornerTable<'mesh> {
                     }
                     maybe_act_c = self.swing_left(act_c);
                 }
-                
+
                 if maybe_act_c.is_none() {
                     // if we have reached open boundary, we need to swing right to mark all corners
                     maybe_act_c = Some(c);
@@ -442,7 +461,7 @@ impl<'mesh> CornerTable<'mesh> {
     #[inline]
     pub(crate) fn corner_to_vert(&self, corner: CornerIdx) -> VertexIdx {
         if let Some(v) = self.corner_to_vertex.get(&corner) {
-            return *v
+            return *v;
         };
 
         let corner = usize::from(corner);
@@ -485,7 +504,7 @@ impl<'mesh> GenericCornerTable for CornerTable<'mesh> {
         let corner = usize::from(corner);
         self.get_mesh_faces()[corner / 3][corner % 3]
     }
-    
+
     #[inline]
     fn vertex_idx(&self, corner: CornerIdx) -> VertexIdx {
         self.corner_to_vert(corner)
@@ -503,10 +522,10 @@ impl<'mesh> GenericCornerTable for CornerTable<'mesh> {
     #[inline]
     fn previous(&self, corner: CornerIdx) -> CornerIdx {
         let corner = usize::from(corner);
-        let out = if corner%3 == 0 {
-            corner+2
+        let out = if corner % 3 == 0 {
+            corner + 2
         } else {
-            corner-1
+            corner - 1
         };
         CornerIdx::from(out)
     }
@@ -514,10 +533,10 @@ impl<'mesh> GenericCornerTable for CornerTable<'mesh> {
     #[inline]
     fn next(&self, corner: CornerIdx) -> CornerIdx {
         let corner = usize::from(corner);
-        let out = if corner%3 == 2 {
-            corner-2
+        let out = if corner % 3 == 2 {
+            corner - 2
         } else {
-            corner+1
+            corner + 1
         };
         CornerIdx::from(out)
     }
@@ -528,25 +547,27 @@ impl<'mesh> GenericCornerTable for CornerTable<'mesh> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::{core::attribute::AttributeDomain, prelude::{AttributeType, NdVector}};
+    use crate::{
+        core::attribute::AttributeDomain,
+        prelude::{AttributeType, NdVector},
+    };
 
     use super::*;
 
     #[test]
     fn test_corner_table() {
         let faces = vec![
-            [PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)], 
-            [PointIdx::from(2), PointIdx::from(1), PointIdx::from(3)]
+            [PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)],
+            [PointIdx::from(2), PointIdx::from(1), PointIdx::from(3)],
         ];
-        let att= Attribute::new(
+        let att = Attribute::new(
             vec![
-                NdVector::from([0_f32, 0.0]), 
-                NdVector::from([1_f32, 0.0]), 
-                NdVector::from([0_f32, 1.0]), 
-                NdVector::from([1_f32, 1.0])
+                NdVector::from([0_f32, 0.0]),
+                NdVector::from([1_f32, 0.0]),
+                NdVector::from([0_f32, 1.0]),
+                NdVector::from([1_f32, 1.0]),
             ],
             AttributeType::Position,
             AttributeDomain::Position,
@@ -557,22 +578,55 @@ mod tests {
         assert_eq!(corner_table.num_faces(), 2);
         assert_eq!(corner_table.num_corners(), 6);
         assert_eq!(corner_table.num_vertices(), 4);
-        assert_eq!(corner_table.face_idx_containing(CornerIdx::from(0)), FaceIdx::from(0));
-        assert_eq!(corner_table.face_idx_containing(CornerIdx::from(1)), FaceIdx::from(0));
-        assert_eq!(corner_table.face_idx_containing(CornerIdx::from(2)), FaceIdx::from(0));
-        assert_eq!(corner_table.face_idx_containing(CornerIdx::from(3)), FaceIdx::from(1));
-        assert_eq!(corner_table.face_idx_containing(CornerIdx::from(4)), FaceIdx::from(1));
-        assert_eq!(corner_table.face_idx_containing(CornerIdx::from(5)), FaceIdx::from(1));
+        assert_eq!(
+            corner_table.face_idx_containing(CornerIdx::from(0)),
+            FaceIdx::from(0)
+        );
+        assert_eq!(
+            corner_table.face_idx_containing(CornerIdx::from(1)),
+            FaceIdx::from(0)
+        );
+        assert_eq!(
+            corner_table.face_idx_containing(CornerIdx::from(2)),
+            FaceIdx::from(0)
+        );
+        assert_eq!(
+            corner_table.face_idx_containing(CornerIdx::from(3)),
+            FaceIdx::from(1)
+        );
+        assert_eq!(
+            corner_table.face_idx_containing(CornerIdx::from(4)),
+            FaceIdx::from(1)
+        );
+        assert_eq!(
+            corner_table.face_idx_containing(CornerIdx::from(5)),
+            FaceIdx::from(1)
+        );
         assert!(corner_table.corner_to_vertex.is_empty());
-        assert_eq!(corner_table.opposite(CornerIdx::from(0)), Some(CornerIdx::from(5)));
+        assert_eq!(
+            corner_table.opposite(CornerIdx::from(0)),
+            Some(CornerIdx::from(5))
+        );
         assert_eq!(corner_table.opposite(CornerIdx::from(1)), None);
         assert_eq!(corner_table.opposite(CornerIdx::from(2)), None);
         assert_eq!(corner_table.opposite(CornerIdx::from(3)), None);
         assert_eq!(corner_table.opposite(CornerIdx::from(4)), None);
-        assert_eq!(corner_table.opposite(CornerIdx::from(5)), Some(CornerIdx::from(0)));
-        assert_eq!(corner_table.previous(CornerIdx::from(0)), CornerIdx::from(2));
-        assert_eq!(corner_table.previous(CornerIdx::from(1)), CornerIdx::from(0));
-        assert_eq!(corner_table.previous(CornerIdx::from(2)), CornerIdx::from(1));
+        assert_eq!(
+            corner_table.opposite(CornerIdx::from(5)),
+            Some(CornerIdx::from(0))
+        );
+        assert_eq!(
+            corner_table.previous(CornerIdx::from(0)),
+            CornerIdx::from(2)
+        );
+        assert_eq!(
+            corner_table.previous(CornerIdx::from(1)),
+            CornerIdx::from(0)
+        );
+        assert_eq!(
+            corner_table.previous(CornerIdx::from(2)),
+            CornerIdx::from(1)
+        );
         assert_eq!(corner_table.next(CornerIdx::from(0)), CornerIdx::from(1));
         assert_eq!(corner_table.next(CornerIdx::from(1)), CornerIdx::from(2));
         assert_eq!(corner_table.next(CornerIdx::from(2)), CornerIdx::from(0));
@@ -581,20 +635,20 @@ mod tests {
     #[test]
     fn test_no_att_seam() {
         let faces = vec![
-            [PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)], 
-            [PointIdx::from(1), PointIdx::from(3), PointIdx::from(2)], 
-            [PointIdx::from(2), PointIdx::from(3), PointIdx::from(4)], 
-            [PointIdx::from(2), PointIdx::from(4), PointIdx::from(5)]
+            [PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)],
+            [PointIdx::from(1), PointIdx::from(3), PointIdx::from(2)],
+            [PointIdx::from(2), PointIdx::from(3), PointIdx::from(4)],
+            [PointIdx::from(2), PointIdx::from(4), PointIdx::from(5)],
         ];
-        let att= Attribute::new(
+        let att = Attribute::new(
             // Some non-duplicated positions
             vec![
-                NdVector::from([0_f32, 0.0, 0.0]), 
-                NdVector::from([1_f32, 0.0, 0.0]), 
-                NdVector::from([0_f32, 1.0, 0.0]), 
+                NdVector::from([0_f32, 0.0, 0.0]),
+                NdVector::from([1_f32, 0.0, 0.0]),
+                NdVector::from([0_f32, 1.0, 0.0]),
                 NdVector::from([1_f32, 1.0, 0.0]),
-                NdVector::from([0_f32, 0.5, 0.0]), 
-                NdVector::from([1_f32, 0.5, 0.0])
+                NdVector::from([0_f32, 0.5, 0.0]),
+                NdVector::from([1_f32, 0.5, 0.0]),
             ],
             AttributeType::Position,
             AttributeDomain::Position,
@@ -611,11 +665,11 @@ mod tests {
     #[test]
     fn test_triangle() {
         let faces = vec![[PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)]];
-        let att= Attribute::new(
+        let att = Attribute::new(
             vec![
-                NdVector::from([0_f32, 0.0]), 
-                NdVector::from([1_f32, 0.0]), 
-                NdVector::from([0_f32, 1.0])
+                NdVector::from([0_f32, 0.0]),
+                NdVector::from([1_f32, 0.0]),
+                NdVector::from([0_f32, 1.0]),
             ],
             AttributeType::Position,
             AttributeDomain::Position,
@@ -626,20 +680,28 @@ mod tests {
         assert_eq!(corner_table.num_faces(), 1);
         assert_eq!(corner_table.num_corners(), 3);
         assert_eq!(corner_table.num_vertices(), 3);
-        assert_eq!(corner_table.left_most_corners, VecVertexIdx::from( vec![CornerIdx::from(0), CornerIdx::from(1), CornerIdx::from(2)]));
+        assert_eq!(
+            corner_table.left_most_corners,
+            VecVertexIdx::from(vec![
+                CornerIdx::from(0),
+                CornerIdx::from(1),
+                CornerIdx::from(2)
+            ])
+        );
     }
 
     #[test]
     fn test_non_manifold() {
         let faces = vec![
-            [PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)], 
-            [PointIdx::from(0), PointIdx::from(3), PointIdx::from(4)]];
-        let att= Attribute::new(
+            [PointIdx::from(0), PointIdx::from(1), PointIdx::from(2)],
+            [PointIdx::from(0), PointIdx::from(3), PointIdx::from(4)],
+        ];
+        let att = Attribute::new(
             vec![
-                NdVector::from([0_f32, 0.0]), 
-                NdVector::from([1_f32, 0.0]), 
+                NdVector::from([0_f32, 0.0]),
+                NdVector::from([1_f32, 0.0]),
                 NdVector::from([0_f32, 1.0]),
-                NdVector::from([-1_f32, 1.0]), 
+                NdVector::from([-1_f32, 1.0]),
                 NdVector::from([0_f32, -1.0]),
             ],
             AttributeType::Position,
@@ -651,21 +713,23 @@ mod tests {
         assert_eq!(corner_table.num_faces(), 2);
         assert_eq!(corner_table.num_corners(), 6);
         assert_eq!(corner_table.num_vertices(), 6); // Vertex 0 is non-manifold, so it is duplicated.
-        let answer: VecVertexIdx<CornerIdx> = vec![0, 1, 2, 4, 5, 3].into_iter()
+        let answer: VecVertexIdx<CornerIdx> = vec![0, 1, 2, 4, 5, 3]
+            .into_iter()
             .map(|x| CornerIdx::from(x))
             .collect::<Vec<_>>()
             .into();
-        assert_eq!(corner_table.left_most_corners, answer); 
+        assert_eq!(corner_table.left_most_corners, answer);
     }
 
     #[test]
     fn test_non_manifold_with_seam() {
         let faces = vec![
-            [VertexIdx::from(0), VertexIdx::from(1), VertexIdx::from(2)], 
-            [VertexIdx::from(1), VertexIdx::from(3), VertexIdx::from(2)], 
-            [VertexIdx::from(2), VertexIdx::from(1), VertexIdx::from(4)]
+            [VertexIdx::from(0), VertexIdx::from(1), VertexIdx::from(2)],
+            [VertexIdx::from(1), VertexIdx::from(3), VertexIdx::from(2)],
+            [VertexIdx::from(2), VertexIdx::from(1), VertexIdx::from(4)],
         ];
-        assert!(CornerTable::contains_non_manifold_edges(&faces), 
+        assert!(
+            CornerTable::contains_non_manifold_edges(&faces),
             "The mesh should contain non-manifold edges, but it does not."
         );
     }

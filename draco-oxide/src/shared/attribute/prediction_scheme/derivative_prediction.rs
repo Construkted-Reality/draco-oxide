@@ -1,35 +1,39 @@
+use super::PredictionSchemeImpl;
 use crate::core::attribute::{Attribute, AttributeType};
 use crate::core::corner_table::GenericCornerTable;
 use crate::core::shared::{CornerIdx, Float, NdVector, Vector, VertexIdx};
-use super::PredictionSchemeImpl;
 
-pub struct DerivativePredictionForTextureCoordinates<'a, C, const N: usize> 
-{
+pub struct DerivativePredictionForTextureCoordinates<'a, C, const N: usize> {
     #[allow(dead_code)] // TODO: Remove this field when the implementation is complete
     corner_table: &'a C,
     #[allow(dead_code)] // TODO: Remove this field when the implementation is complete
     points: &'a Attribute,
 }
 
-impl<'a, C, const N: usize> DerivativePredictionForTextureCoordinates<'a, C, N> 
-    where 
-        C: GenericCornerTable,
-        NdVector<N, i32>: Vector<N, Component = i32>,
+impl<'a, C, const N: usize> DerivativePredictionForTextureCoordinates<'a, C, N>
+where
+    C: GenericCornerTable,
+    NdVector<N, i32>: Vector<N, Component = i32>,
 {
     #[allow(dead_code)] // TODO: Remove this field when the implementation is complete
-	fn predict_impl<F>(&self, _values_up_till_now: &[NdVector<N,i32>], _points: &[NdVector<3,F>], _faces: &[[usize; 3]]) -> NdVector<N, i32>
-		where
-			F: Float,
-			NdVector<3,F>: Vector<N, Component = F>,
-	{
+    fn predict_impl<F>(
+        &self,
+        _values_up_till_now: &[NdVector<N, i32>],
+        _points: &[NdVector<3, F>],
+        _faces: &[[usize; 3]],
+    ) -> NdVector<N, i32>
+    where
+        F: Float,
+        NdVector<3, F>: Vector<N, Component = F>,
+    {
         unimplemented!()
-		// let n_points = values_up_till_now.len();
-		
-		// // Find the the first opposite face.
+        // let n_points = values_up_till_now.len();
+
+        // // Find the the first opposite face.
         // // 'diagonal' is the vertex opposite to 'n_points', and 'a' and 'b' are the other points such that 'a<b'.
         // let [a,b,diagonal] = faces.iter()
         //     .filter(|f| f.contains(&n_points))
-        //     .map(|&[a,b,c]| 
+        //     .map(|&[a,b,c]|
         //         if a == n_points {
         //             [b, c]
         //         } else if b == n_points {
@@ -57,69 +61,73 @@ impl<'a, C, const N: usize> DerivativePredictionForTextureCoordinates<'a, C, N>
         //     })
         //     .unwrap();
 
-		// let x_pos = points[n_points];
+        // let x_pos = points[n_points];
 
-		// let a_tex = values_up_till_now[a];
-		// let b_tex = values_up_till_now[b];
-		// let diagonal_tex = values_up_till_now[diagonal];
-		// let a_pos = points[a];
-		// let b_pos = points[b];
-		// let diagonal_pos = points[diagonal];
+        // let a_tex = values_up_till_now[a];
+        // let b_tex = values_up_till_now[b];
+        // let diagonal_tex = values_up_till_now[diagonal];
+        // let a_pos = points[a];
+        // let b_pos = points[b];
+        // let diagonal_pos = points[diagonal];
 
-		// let u_tex = a_tex - diagonal_tex;
-		// let v_tex = b_tex - diagonal_tex;
+        // let u_tex = a_tex - diagonal_tex;
+        // let v_tex = b_tex - diagonal_tex;
 
-		// let u_pos = a_pos - diagonal_pos;
-		// let v_pos = b_pos - diagonal_pos;
+        // let u_pos = a_pos - diagonal_pos;
+        // let v_pos = b_pos - diagonal_pos;
 
-		// let delta_pos_projected_on_tp = {
-		// 	let delta_pos = x_pos - diagonal_pos;
-		// 	let normal = u_pos.cross(v_pos);
-		// 	let s = -normal.dot(delta_pos) / normal.dot(normal);
-		// 	let out = normal*s + delta_pos;
-		// 	debug_assert!(
-		// 		out.dot(normal).abs() < F::from_f64(1e-6),
-		// 		"delta_pos_projected_on_tp must be on the plane defined by u_pos and v_pos, but it is not. \
-		// 		delta_pos_projected_on_tp = {:.5?}, normal = {:.5?}, delta_pos = {:.5?}",
-		// 		out, normal, delta_pos
-		// 	);
-		// 	out
-		// };
+        // let delta_pos_projected_on_tp = {
+        // 	let delta_pos = x_pos - diagonal_pos;
+        // 	let normal = u_pos.cross(v_pos);
+        // 	let s = -normal.dot(delta_pos) / normal.dot(normal);
+        // 	let out = normal*s + delta_pos;
+        // 	debug_assert!(
+        // 		out.dot(normal).abs() < F::from_f64(1e-6),
+        // 		"delta_pos_projected_on_tp must be on the plane defined by u_pos and v_pos, but it is not. \
+        // 		delta_pos_projected_on_tp = {:.5?}, normal = {:.5?}, delta_pos = {:.5?}",
+        // 		out, normal, delta_pos
+        // 	);
+        // 	out
+        // };
 
-		// let u_cross_v = u_pos.cross(v_pos);
-		// let u_cross_v_norm_squared = u_cross_v.dot(u_cross_v);
-		// let s = delta_pos_projected_on_tp.cross(v_pos).dot(u_cross_v) / u_cross_v_norm_squared;
-		// let t = u_pos.cross(delta_pos_projected_on_tp).dot(u_cross_v) / u_cross_v_norm_squared;
+        // let u_cross_v = u_pos.cross(v_pos);
+        // let u_cross_v_norm_squared = u_cross_v.dot(u_cross_v);
+        // let s = delta_pos_projected_on_tp.cross(v_pos).dot(u_cross_v) / u_cross_v_norm_squared;
+        // let t = u_pos.cross(delta_pos_projected_on_tp).dot(u_cross_v) / u_cross_v_norm_squared;
 
-		// debug_assert!(
-		// 	(u_pos*s+v_pos*t - delta_pos_projected_on_tp).norm() < F::from_f64(1e-6),
-		// 	"u_pos*s+v_pos*t must equal delta_pos_projected_on_tp, but it is not. \
-		// 	u_pos*s+v_pos*t = {:?}, delta_pos_projected_on_tp = {:?}",
-		// 	u_pos*s+v_pos*t, delta_pos_projected_on_tp
-		// );
+        // debug_assert!(
+        // 	(u_pos*s+v_pos*t - delta_pos_projected_on_tp).norm() < F::from_f64(1e-6),
+        // 	"u_pos*s+v_pos*t must equal delta_pos_projected_on_tp, but it is not. \
+        // 	u_pos*s+v_pos*t = {:?}, delta_pos_projected_on_tp = {:?}",
+        // 	u_pos*s+v_pos*t, delta_pos_projected_on_tp
+        // );
 
-		// // ToDo: The following type conversion if okay but not great.
-		// let s = s.to_f64();
-		// let t = t.to_f64();
+        // // ToDo: The following type conversion if okay but not great.
+        // let s = s.to_f64();
+        // let t = t.to_f64();
 
-		// let delta_tex = u_tex * s + v_tex * t;
+        // let delta_tex = u_tex * s + v_tex * t;
 
-		// diagonal_tex + delta_tex
-	}
+        // diagonal_tex + delta_tex
+    }
 }
 
-impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for DerivativePredictionForTextureCoordinates<'parents, C, N>
-    where 
-        C: GenericCornerTable,
-        NdVector<N, i32>: Vector<N, Component = i32>,
+impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N>
+    for DerivativePredictionForTextureCoordinates<'parents, C, N>
+where
+    C: GenericCornerTable,
+    NdVector<N, i32>: Vector<N, Component = i32>,
 {
-	const ID: u32 = 4;
-	
-	type AdditionalDataForMetadata = ();
-	
+    const ID: u32 = 4;
+
+    type AdditionalDataForMetadata = ();
+
     /// We need two parents: faces and points.
-	fn new(parents: &[&'parents Attribute], corner_table: &'parents C) -> Self {
-        assert!(parents.len() == 2, "Derivative prediction needs two parents: faces and points.");
+    fn new(parents: &[&'parents Attribute], corner_table: &'parents C) -> Self {
+        assert!(
+            parents.len() == 2,
+            "Derivative prediction needs two parents: faces and points."
+        );
         assert!(
             parents[0].get_attribute_type() == AttributeType::Position,
             "Derivative prediction needs points points as parents, but they are: {:?}.",
@@ -129,14 +137,15 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
         Self {
             corner_table,
             points: parents[0],
-        }   
+        }
     }
 
-	fn get_values_impossible_to_predict(&mut self, _seq: &mut Vec<std::ops::Range<usize>>) 
-		-> Vec<std::ops::Range<usize>> 
-    {
+    fn get_values_impossible_to_predict(
+        &mut self,
+        _seq: &mut Vec<std::ops::Range<usize>>,
+    ) -> Vec<std::ops::Range<usize>> {
         unimplemented!();
-		// let mut is_already_encoded: Vec<bool> = Vec::new();
+        // let mut is_already_encoded: Vec<bool> = Vec::new();
         // let mut vertices_without_parallelogram: Vec<ops::Range<usize>> = Vec::new();
 
         // for face in self.corner_table {
@@ -145,7 +154,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
         //         .filter(|&&v| v>=is_already_encoded.len() || !is_already_encoded[v])
         //         .count();
         //     if num_unvisited_vertices == 3 {
-        //         // In the standard edgebreaker decoding, only unpredictable faces are 
+        //         // In the standard edgebreaker decoding, only unpredictable faces are
         //         // the first ones getting encoded among a connected component.
         //         // In the reverse-play decoding, only unpredictable faces are
         //         // the ones that correspond to the 'E' symbol.
@@ -221,8 +230,8 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
         //         };
         //         continue;
         //     }
-        //     // The following cases are impossible since the 'seq' contains 'merged': 
-            
+        //     // The following cases are impossible since the 'seq' contains 'merged':
+
         //     // [    m    )
         //     //    [    r    )
         //     debug_assert!(!(r.start > m.start && r.start < m.end && r.end > m.end));
@@ -235,7 +244,6 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
         //     //   [  r  )
         //     debug_assert!(!(r.start < m.start && r.end > m.start && r.end < m.end));
 
-            
         //     // The following cases are the only possibilities:
 
         //     // [  m  )
@@ -261,7 +269,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
         //     // [  r  )
         //     else if r == *m {
         //         new_seq.pop();
-                
+
         //         r = if let Some(r) = seq_iter.next() {
         //             r
         //         } else {
@@ -286,21 +294,21 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
         //         };
         //     }
         // }
-        
+
         // mem::swap(seq, &mut new_seq);
 
         // merged
     }
-	
-	/// predicts the attribute from the given information. 
-	fn predict (
-		&mut self,
+
+    /// predicts the attribute from the given information.
+    fn predict(
+        &mut self,
         _i: CornerIdx,
         _vertices_processed_up_till_now: &[VertexIdx],
         _attribute: &Attribute,
-	) -> NdVector<N, i32> {
+    ) -> NdVector<N, i32> {
         unimplemented!()
-		// self.predict_impl(values_up_till_now, self.points, self.faces)
+        // self.predict_impl(values_up_till_now, self.points, self.faces)
     }
 }
 
@@ -329,7 +337,7 @@ impl<'parents, C, const N: usize> PredictionSchemeImpl<'parents, C, N> for Deriv
 // 		let prediction = DerivativePredictionForTextureCoordinates::<NdVector<2,f32>>::new(&[&face_att, &pts_att]);
 
 // 		let predicted_value = prediction.predict(&values_up_till_now[..]);
-		
+
 // 		assert_eq!(predicted_value, NdVector::from([1.0, 1.0]));
 // 	}
 // }

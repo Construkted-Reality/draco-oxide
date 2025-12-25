@@ -1,8 +1,8 @@
+use super::rans;
 use crate::core::bit_coder::BitWriter;
 use crate::encode::entropy::rans::RansSymbolEncoder;
 use crate::prelude::ByteWriter;
 use crate::shared::entropy::SymbolEncodingMethod;
-use super::rans;
 
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Err {
@@ -15,47 +15,41 @@ pub enum Err {
 }
 
 pub fn encode_symbols<W>(
-    symbols: Vec<u64>, num_components: usize, config: SymbolEncodingMethod, writer: &mut W
-) -> Result<(), Err> 
-    where W: ByteWriter
+    symbols: Vec<u64>,
+    num_components: usize,
+    config: SymbolEncodingMethod,
+    writer: &mut W,
+) -> Result<(), Err>
+where
+    W: ByteWriter,
 {
     config.write_to(writer);
     // ToDo: Add the logic to dynamically determine the config
     match config {
         SymbolEncodingMethod::LengthCoded => {
             let mut bit_lengths = Vec::new();
-            for i in 0..symbols.len()/num_components {
+            for i in 0..symbols.len() / num_components {
                 let mut max_bit_length = 0;
                 for j in 0..num_components {
                     let s = symbols[i * num_components + j];
-                    let bit_length = (64-s.leading_zeros()) as usize;
+                    let bit_length = (64 - s.leading_zeros()) as usize;
                     if bit_length > max_bit_length {
                         max_bit_length = bit_length;
                     }
                 }
                 bit_lengths.push(max_bit_length as u8);
             }
-            encode_symbols_length_coded(
-                symbols, 
-                num_components, 
-                bit_lengths, 
-                writer
-            )
-        },
+            encode_symbols_length_coded(symbols, num_components, bit_lengths, writer)
+        }
         SymbolEncodingMethod::DirectCoded => {
-            let num_symbols = symbols.iter().filter(|&&x| x>0).count();
+            let num_symbols = symbols.iter().filter(|&&x| x > 0).count();
 
-            encode_symbols_direct_coded(
-                symbols,
-                num_symbols,
-                writer
-            )
+            encode_symbols_direct_coded(symbols, num_symbols, writer)
         }
     }
 }
 
-
-/// Encodes symbols using the rANS coder as the tag encoder, that is, the symbols are encoded as bits, and the 
+/// Encodes symbols using the rANS coder as the tag encoder, that is, the symbols are encoded as bits, and the
 /// bit lengths are encoded by the rANS coder.
 ///     symbols: the symbols to encode. For data with multiple components (e.g., 3D points are with 3 components), \
 ///        the symbols must be a vector of length `num_values * num_components` (e.g. a set of 100 3D points is\
@@ -68,9 +62,10 @@ fn encode_symbols_length_coded<W>(
     symbols: Vec<u64>,
     num_components: usize,
     bit_lengths: Vec<u8>,
-    writer: &mut W
-) -> Result<(), Err> 
-    where W: ByteWriter
+    writer: &mut W,
+) -> Result<(), Err>
+where
+    W: ByteWriter,
 {
     let mut freq_counts = Vec::new();
 
@@ -83,11 +78,11 @@ fn encode_symbols_length_coded<W>(
     }
 
     let mut values = Vec::new();
-    let mut encoder = RansSymbolEncoder::<'_,_,5, 12>::new(writer, freq_counts, None)?;
-    for i in (0..symbols.len()/num_components).rev() {
+    let mut encoder = RansSymbolEncoder::<'_, _, 5, 12>::new(writer, freq_counts, None)?;
+    for i in (0..symbols.len() / num_components).rev() {
         let bit_length = bit_lengths[i] as usize;
-        encoder.write(bit_length as usize )?;
-        
+        encoder.write(bit_length as usize)?;
+
         // Values are always encoded in the normal order
         let j = symbols.len() - num_components - i * num_components;
         let value_bit_length = bit_lengths[j / num_components];
@@ -96,7 +91,7 @@ fn encode_symbols_length_coded<W>(
         }
     }
     encoder.flush()?;
-    
+
     // Append the values to the end of the target buffer.
     let mut writer: BitWriter<_> = BitWriter::spown_from(writer);
     for val in values.into_iter() {
@@ -105,17 +100,15 @@ fn encode_symbols_length_coded<W>(
     Ok(())
 }
 
-
 fn encode_symbols_direct_coded<W>(
     symbols: Vec<u64>,
     num_unique_symbols: usize,
-    writer: &mut W
-) 
-    -> Result<(), Err>
+    writer: &mut W,
+) -> Result<(), Err>
 where
     W: ByteWriter,
 {
-    let bit_length = (64-num_unique_symbols.leading_zeros() as usize + 1).clamp(1, 18);
+    let bit_length = (64 - num_unique_symbols.leading_zeros() as usize + 1).clamp(1, 18);
     writer.write_u8(bit_length as u8);
     match bit_length {
         1 => encode_symbols_direct_coded_precision_unwrapped::<W, 1, 12>(symbols, writer),
@@ -140,11 +133,16 @@ where
     }
 }
 
-fn encode_symbols_direct_coded_precision_unwrapped<W, const NUM_SYMBOLS_BIT_LENGTH: usize, const RANS_PRECISION: usize>(
+fn encode_symbols_direct_coded_precision_unwrapped<
+    W,
+    const NUM_SYMBOLS_BIT_LENGTH: usize,
+    const RANS_PRECISION: usize,
+>(
     symbols: Vec<u64>,
-    writer: &mut W
+    writer: &mut W,
 ) -> Result<(), Err>
-    where W: ByteWriter,
+where
+    W: ByteWriter,
 {
     let mut freq_counts = Vec::with_capacity(symbols.len());
     let mut max_symbol = 0;
@@ -155,8 +153,12 @@ fn encode_symbols_direct_coded_precision_unwrapped<W, const NUM_SYMBOLS_BIT_LENG
         }
         freq_counts[s as usize] += 1;
     }
-    
-    let mut encoder = RansSymbolEncoder::<'_,_,NUM_SYMBOLS_BIT_LENGTH,RANS_PRECISION>::new(writer, freq_counts, None)?;
+
+    let mut encoder = RansSymbolEncoder::<'_, _, NUM_SYMBOLS_BIT_LENGTH, RANS_PRECISION>::new(
+        writer,
+        freq_counts,
+        None,
+    )?;
 
     for s in symbols.into_iter().rev() {
         encoder.write(s as usize)?;

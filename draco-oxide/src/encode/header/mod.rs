@@ -2,8 +2,7 @@ use crate::{core::bit_coder::ByteWriter, shared::header::EncoderMethod};
 
 #[remain::sorted]
 #[derive(thiserror::Error, Debug)]
-pub enum Err {
-}
+pub enum Err {}
 
 #[derive(Clone, Debug)]
 pub enum EncodedGeometryType {

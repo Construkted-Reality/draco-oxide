@@ -19,23 +19,18 @@ pub(crate) mod core;
 /// Contains the macros used by the encoder and the decoder.
 pub(crate) mod utils;
 
-
 /// Contains the most commonly used traits, types, and objects.
 pub mod prelude {
     pub use crate::core::attribute::{Attribute, AttributeType};
-    pub use crate::core::mesh::{Mesh, builder::MeshBuilder};
-    pub use crate::core::shared::{NdVector, Vector, DataValue};
-    pub use crate::core::shared::ConfigType;
     pub use crate::core::bit_coder::{
-        ByteReader, 
-        ByteWriter, 
-        FunctionalByteReader, 
-        FunctionalByteWriter
+        ByteReader, ByteWriter, FunctionalByteReader, FunctionalByteWriter,
     };
+    pub use crate::core::mesh::{builder::MeshBuilder, Mesh};
+    pub use crate::core::shared::ConfigType;
+    pub use crate::core::shared::{DataValue, NdVector, Vector};
     pub use crate::encode::{self, encode};
     // pub use crate::decode::{self, decode};
 }
-
 
 /// Evaluation module contains the evaluation functions for the encoder and the decoder.
 /// When enabled, draco-oxide encoder will spit out the evaluation data mixed with encoded data,

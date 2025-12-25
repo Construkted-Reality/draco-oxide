@@ -1,7 +1,7 @@
-use clap::Parser;
 use anyhow::Result;
-use std::path::Path;
+use clap::Parser;
 use draco_oxide::prelude::ConfigType;
+use std::path::Path;
 
 #[derive(Parser)]
 #[command(name = "draco-cli")]
@@ -31,13 +31,12 @@ fn main() -> Result<()> {
 }
 
 fn convert_obj_to_drc(input_path: &str, output_path: &str) -> Result<()> {
-    
     // Check input file extension
     let input_ext = Path::new(input_path)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    
+
     if input_ext != "obj" {
         anyhow::bail!("Input file must be a .obj file for conversion mode");
     }
@@ -47,7 +46,7 @@ fn convert_obj_to_drc(input_path: &str, output_path: &str) -> Result<()> {
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    
+
     if output_ext != "drc" {
         anyhow::bail!("Output file must be a .drc file for conversion mode");
     }
@@ -55,7 +54,6 @@ fn convert_obj_to_drc(input_path: &str, output_path: &str) -> Result<()> {
     // Load OBJ file using draco-oxide's OBJ loader
     let mesh = draco_oxide::io::obj::load_obj(input_path)
         .map_err(|e| anyhow::anyhow!("Failed to load OBJ file: {:?}", e))?;
-
 
     // Configure compression settings
     let config = draco_oxide::encode::Config::default();
@@ -73,13 +71,12 @@ fn convert_obj_to_drc(input_path: &str, output_path: &str) -> Result<()> {
 }
 
 fn transcode_gltf(input_path: &str, output_path: &str) -> Result<()> {
-    
     // Check input file extension
     let input_ext = Path::new(input_path)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    
+
     if !matches!(input_ext, "gltf" | "glb") {
         anyhow::bail!("Input file must be a .gltf or .glb file for transcode mode");
     }
@@ -89,7 +86,7 @@ fn transcode_gltf(input_path: &str, output_path: &str) -> Result<()> {
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    
+
     if !matches!(output_ext, "gltf" | "glb") {
         anyhow::bail!("Output file must be a .gltf or .glb file for transcode mode");
     }
@@ -105,7 +102,8 @@ fn transcode_gltf(input_path: &str, output_path: &str) -> Result<()> {
     );
 
     // Perform transcoding
-    transcoder.transcode_file(&file_options)
+    transcoder
+        .transcode_file(&file_options)
         .map_err(|e| anyhow::anyhow!("Failed to transcode: {:?}", e))?;
 
     Ok(())

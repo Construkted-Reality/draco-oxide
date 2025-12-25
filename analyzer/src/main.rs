@@ -1,33 +1,29 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
-use std::io::Write;
 
-use draco_oxide::prelude::*;
 use draco_oxide::eval;
 use draco_oxide::io::gltf::transcoder::{DracoTranscoder, DracoTranscodingOptions, FileOptions};
+use draco_oxide::prelude::*;
 
+use chrono::Local;
 use clap::Parser;
 use serde::Deserialize;
+use std::fs::{copy, create_dir_all, read_to_string, write};
 use std::io;
-use std::fs::{create_dir_all, read_to_string, write, copy};
-use chrono::Local;
-
-
 
 /// Decode a .drc file using Google's C++ Draco decoder
 fn decode_with_cpp_draco(drc_path: &Path, obj_output_path: &Path) -> io::Result<()> {
     // Check if draco_decoder is available
-    let output = Command::new("draco_decoder")
-        .arg("--help")
-        .output();
-    
+    let output = Command::new("draco_decoder").arg("--help").output();
+
     if output.is_err() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "draco_decoder not found. Please install Google's Draco C++ tools."
+            "draco_decoder not found. Please install Google's Draco C++ tools.",
         ));
     }
-    
+
     // Decode the .drc file to an OBJ file
     let output = Command::new("draco_decoder")
         .arg("-i")
@@ -35,18 +31,17 @@ fn decode_with_cpp_draco(drc_path: &Path, obj_output_path: &Path) -> io::Result<
         .arg("-o")
         .arg(obj_output_path)
         .output()?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("draco_decoder failed: {}", stderr)
+            format!("draco_decoder failed: {}", stderr),
         ));
     }
-    
+
     Ok(())
 }
-
 
 /// Mesh Analyzer CLI arguments
 #[derive(Parser, Debug)]
@@ -61,10 +56,12 @@ fn main() {
     let args = Args::parse();
 
     // Check file extension
-    let extension = args.input.extension()
+    let extension = args
+        .input
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|s| s.to_lowercase());
-    
+
     match extension.as_deref() {
         Some("obj") => {
             if let Err(e) = generate_html_report(&args.input) {
@@ -95,7 +92,8 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
 
     // Copy original GLB/glTF file and its dependencies
     // Preserve the original file extension to avoid GLTFLoader confusion
-    let original_extension = original.extension()
+    let original_extension = original
+        .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("glb");
     let input_file_path = out_dir.join(format!("input.{}", original_extension));
@@ -103,11 +101,15 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
 
     // Create output paths - use "output.glb" to match HTML template expectations
     let compressed_output_path = out_dir.join("output.glb");
-    
+
     // Use DracoTranscoder to compress the GLTF/GLB file
     let transcoding_options = DracoTranscodingOptions::default();
-    let mut transcoder = DracoTranscoder::create(Some(transcoding_options))
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create transcoder: {}", e)))?;
+    let mut transcoder = DracoTranscoder::create(Some(transcoding_options)).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to create transcoder: {}", e),
+        )
+    })?;
 
     let file_options = FileOptions::new(
         original.to_string_lossy().to_string(),
@@ -115,7 +117,11 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
     );
 
     // Perform transcoding with Draco compression
-    println!("Transcoding {} to {}", original.display(), compressed_output_path.display());
+    println!(
+        "Transcoding {} to {}",
+        original.display(),
+        compressed_output_path.display()
+    );
     match transcoder.transcode_file(&file_options) {
         Ok(()) => {
             println!("Successfully transcoded with Draco compression");
@@ -126,12 +132,12 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
             copy_gltf_with_dependencies(original, &compressed_output_path, &out_dir)?;
         }
     }
-    
+
     // Generate eval.json with compression information
     let original_size = std::fs::metadata(original)?.len();
     let compressed_size = std::fs::metadata(&compressed_output_path)?.len();
     let compression_ratio = original_size as f64 / compressed_size as f64;
-    
+
     let eval_data = serde_json::json!({
         "file_info": {
             "input_file": original.file_name().unwrap_or_default().to_string_lossy(),
@@ -149,9 +155,12 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
             "note": "All GLTF dependencies (textures, bin files, etc.) have been copied to output directory"
         }
     });
-    
+
     let eval_json_path = out_dir.join("eval.json");
-    std::fs::write(&eval_json_path, serde_json::to_string_pretty(&eval_data).unwrap())?;
+    std::fs::write(
+        &eval_json_path,
+        serde_json::to_string_pretty(&eval_data).unwrap(),
+    )?;
 
     // Copy assets for HTML report
     let js_src = Path::new("analyzer/assets/viewer.js");
@@ -160,9 +169,10 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
 
     let html_template_path = Path::new("analyzer/assets/template.html");
     let html_content = read_to_string(html_template_path)?;
-    let html_content = html_content
-        .replace("{{file_type}}", "gltf")
-        .replace("{{original_filename}}", &format!("input.{}", original_extension));
+    let html_content = html_content.replace("{{file_type}}", "gltf").replace(
+        "{{original_filename}}",
+        &format!("input.{}", original_extension),
+    );
 
     let out_file = out_dir.join("index.html");
     write(out_file, html_content)?;
@@ -218,27 +228,32 @@ pub struct CompressionStats {
     pub decode_time_ms: f32,
 }
 
-
 fn compress_and_decompress(original: &PathBuf, out_dir: &Path) -> io::Result<()> {
-    let original_mesh = draco_oxide::io::obj::load_obj(original)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to load OBJ: {}", e)))?;
-    
+    let original_mesh = draco_oxide::io::obj::load_obj(original).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to load OBJ: {}", e),
+        )
+    })?;
+
     let mut buffer = Vec::new();
     let mut writer = eval::EvalWriter::new(&mut buffer);
-    encode(original_mesh.clone(), &mut writer, encode::Config::default()).unwrap();
+    encode(
+        original_mesh.clone(),
+        &mut writer,
+        encode::Config::default(),
+    )
+    .unwrap();
     println!("Encoding done.");
 
     // Copy the input file as "input.obj"
     std::fs::copy(original, out_dir.join("input.obj"))?;
 
     // write json
-    let mut eval_file = std::fs::File::create(
-    out_dir.join("eval.json")
-    ).unwrap();
+    let mut eval_file = std::fs::File::create(out_dir.join("eval.json")).unwrap();
     let data = writer.get_result();
     let data = serde_json::to_string_pretty(&data).unwrap();
     eval_file.write_all(data.as_bytes()).unwrap();
-
 
     // Write compressed data to a temporary file for C++ decoder
     let compressed_file_path = out_dir.join("compressed.drc");
@@ -267,7 +282,6 @@ fn compress_and_decompress(original: &PathBuf, out_dir: &Path) -> io::Result<()>
     //     .replace_all(&clers_symbols, "")
     //     .to_string();
 
-
     // // Write the MTL file with a comment containing the clers symbols
     // let mut mtl_file = std::fs::File::create(out_dir.join("output.mtl")).unwrap();
     // writeln!(mtl_file, "# clers_symbols").unwrap();
@@ -280,7 +294,7 @@ fn compress_and_decompress(original: &PathBuf, out_dir: &Path) -> io::Result<()>
     // writeln!(mtl_file, "newmtl H\nKd 1.0 1.0 1.0").unwrap();
 
     // writeln!(file_writer, "mtllib output.mtl").unwrap();
-    
+
     // let result_attributes = mesh.get_attributes();
     // // The decoded mesh might have different attribute layout
     // // Position is typically at index 1, normals at index 2 after decoding
@@ -301,74 +315,95 @@ fn compress_and_decompress(original: &PathBuf, out_dir: &Path) -> io::Result<()>
 
     // let face_data = result_attributes[0].as_slice::<[usize; 3]>();
     // assert!(
-    //     clers_symbols.len() == face_data.len(), 
-    //     "clers_symbols.len() = {} != face_data.len() = {}", 
+    //     clers_symbols.len() == face_data.len(),
+    //     "clers_symbols.len() = {} != face_data.len() = {}",
     //     clers_symbols.len(), face_data.len()
     // );
     // for (face, symbol) in face_data.iter().zip(clers_symbols.chars()) {
     //     writeln!(file_writer, "usemtl {}", symbol).unwrap();
     //     writeln!(file_writer, "f {0}//{0} {1}//{1} {2}//{2}", face[0] + 1, face[1] + 1, face[2] + 1).unwrap();
     // }
-    
+
     Ok(())
 }
 
 /// Copy a GLTF/GLB file along with all its dependencies (textures, bin files, etc.)
-fn copy_gltf_with_dependencies(source_path: &Path, dest_path: &Path, dest_dir: &Path) -> io::Result<()> {
+fn copy_gltf_with_dependencies(
+    source_path: &Path,
+    dest_path: &Path,
+    dest_dir: &Path,
+) -> io::Result<()> {
     let source_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
-    let source_extension = source_path.extension()
+    let source_extension = source_path
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|s| s.to_lowercase());
-    
+
     match source_extension.as_deref() {
         Some("glb") => {
             // GLB files are self-contained binary files, just copy the file
             copy(source_path, dest_path)?;
-            println!("Copied GLB file: {} -> {}", source_path.display(), dest_path.display());
-        },
+            println!(
+                "Copied GLB file: {} -> {}",
+                source_path.display(),
+                dest_path.display()
+            );
+        }
         Some("gltf") => {
             // GLTF files are JSON and may reference external files
             copy(source_path, dest_path)?;
-            println!("Copied GLTF file: {} -> {}", source_path.display(), dest_path.display());
-            
+            println!(
+                "Copied GLTF file: {} -> {}",
+                source_path.display(),
+                dest_path.display()
+            );
+
             // Parse the GLTF file to find dependencies
             let dependencies = parse_gltf_dependencies(source_path)?;
-            
+
             // Copy each dependency
             for dep_path in dependencies {
                 let source_dep = source_dir.join(&dep_path);
                 let dest_dep = dest_dir.join(&dep_path);
-                
+
                 // Create subdirectories if needed
                 if let Some(parent) = dest_dep.parent() {
                     create_dir_all(parent)?;
                 }
-                
+
                 if source_dep.exists() {
                     copy(&source_dep, &dest_dep)?;
-                    println!("Copied dependency: {} -> {}", source_dep.display(), dest_dep.display());
+                    println!(
+                        "Copied dependency: {} -> {}",
+                        source_dep.display(),
+                        dest_dep.display()
+                    );
                 } else {
                     eprintln!("Warning: Dependency not found: {}", source_dep.display());
                 }
             }
-        },
+        }
         _ => {
             // Unknown format, just copy the file
             copy(source_path, dest_path)?;
         }
     }
-    
+
     Ok(())
 }
 
 /// Parse a GLTF JSON file to extract dependency file paths
 fn parse_gltf_dependencies(gltf_path: &Path) -> io::Result<Vec<String>> {
     let content = std::fs::read_to_string(gltf_path)?;
-    let gltf_json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse GLTF JSON: {}", e)))?;
-    
+    let gltf_json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to parse GLTF JSON: {}", e),
+        )
+    })?;
+
     let mut dependencies = Vec::new();
-    
+
     // Extract buffer dependencies (typically .bin files)
     if let Some(buffers) = gltf_json.get("buffers").and_then(|b| b.as_array()) {
         for buffer in buffers {
@@ -380,7 +415,7 @@ fn parse_gltf_dependencies(gltf_path: &Path) -> io::Result<Vec<String>> {
             }
         }
     }
-    
+
     // Extract image dependencies (textures)
     if let Some(images) = gltf_json.get("images").and_then(|i| i.as_array()) {
         for image in images {
@@ -392,10 +427,10 @@ fn parse_gltf_dependencies(gltf_path: &Path) -> io::Result<Vec<String>> {
             }
         }
     }
-    
+
     // Extract other potential dependencies from extensions
     extract_extension_dependencies(&gltf_json, &mut dependencies);
-    
+
     Ok(dependencies)
 }
 
@@ -407,7 +442,7 @@ fn extract_extension_dependencies(gltf_json: &serde_json::Value, dependencies: &
         // For now, this is a placeholder for future extension support
         let _ = extensions; // Suppress unused variable warning
     }
-    
+
     // Check for any other URI references in the JSON
     extract_uris_recursively(gltf_json, dependencies);
 }
@@ -420,7 +455,9 @@ fn extract_uris_recursively(value: &serde_json::Value, dependencies: &mut Vec<St
                 if key == "uri" {
                     if let Some(uri_str) = val.as_str() {
                         // Only add non-data URIs that we haven't already added
-                        if !uri_str.starts_with("data:") && !dependencies.contains(&uri_str.to_string()) {
+                        if !uri_str.starts_with("data:")
+                            && !dependencies.contains(&uri_str.to_string())
+                        {
                             dependencies.push(uri_str.to_string());
                         }
                     }
@@ -428,12 +465,12 @@ fn extract_uris_recursively(value: &serde_json::Value, dependencies: &mut Vec<St
                     extract_uris_recursively(val, dependencies);
                 }
             }
-        },
+        }
         serde_json::Value::Array(arr) => {
             for item in arr {
                 extract_uris_recursively(item, dependencies);
             }
-        },
+        }
         _ => {} // Primitive values, nothing to do
     }
 }

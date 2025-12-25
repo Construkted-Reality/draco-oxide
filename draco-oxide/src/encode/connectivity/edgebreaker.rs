@@ -1,46 +1,46 @@
-use std::{
-    fmt,
-    cmp,
-};
+use std::{cmp, fmt};
 
+use crate::core::bit_coder::{BitWriter, ByteWriter};
 use crate::core::buffer::LsbFirst;
 use crate::core::corner_table::all_inclusive_corner_table::AllInclusiveCornerTable;
 use crate::core::corner_table::attribute_corner_table::AttributeCornerTable;
-use crate::core::corner_table::GenericCornerTable;
-use crate::core::bit_coder::{BitWriter, ByteWriter};
 use crate::core::corner_table::CornerTable;
+use crate::core::corner_table::GenericCornerTable;
+use crate::debug_write;
 use crate::encode::entropy::rans::{self, RabsCoder};
 use crate::encode::entropy::symbol_coding::encode_symbols;
-use crate::debug_write;
 use crate::prelude::{Attribute, AttributeType};
 use crate::shared::connectivity::edgebreaker::symbol_encoder::{CrLight, Symbol, SymbolEncoder};
 
-use crate::core::shared::{ConfigType, CornerIdx, FaceIdx, PointIdx, VecFaceIdx, VecVertexIdx, VertexIdx};
+use crate::core::shared::{
+    ConfigType, CornerIdx, FaceIdx, PointIdx, VecFaceIdx, VecVertexIdx, VertexIdx,
+};
 
-use crate::shared::connectivity::edgebreaker::{self, EdgebreakerKind, Orientation, TopologySplit, MAX_VALENCE, MIN_VALENCE};
+use crate::shared::connectivity::edgebreaker::{
+    self, EdgebreakerKind, Orientation, TopologySplit, MAX_VALENCE, MIN_VALENCE,
+};
 use crate::shared::entropy::SymbolEncodingMethod;
 use crate::utils::bit_coder::leb128_write;
 use std::collections::BTreeMap;
 use std::vec;
-
-
 
 use crate::encode::connectivity::ConnectivityEncoder;
 
 #[cfg(feature = "evaluation")]
 use crate::eval;
 
-pub(crate) struct Edgebreaker<'faces, T> 
-    where T: Traversal
+pub(crate) struct Edgebreaker<'faces, T>
+where
+    T: Traversal,
 {
-	/// The 'i'th entry of 'visited_vertices' is true if the Edgebreaker has
-	/// already visited the 'i' th vertex.
-	visited_vertices: VecVertexIdx<bool>,
+    /// The 'i'th entry of 'visited_vertices' is true if the Edgebreaker has
+    /// already visited the 'i' th vertex.
+    visited_vertices: VecVertexIdx<bool>,
 
-	/// The 'i'th entry of 'visited_edges' is true if the Edgebreaker has
-	/// already visited the 'i' th face.
-	visited_faces: VecFaceIdx<bool>,
-    
+    /// The 'i'th entry of 'visited_edges' is true if the Edgebreaker has
+    /// already visited the 'i' th face.
+    visited_faces: VecFaceIdx<bool>,
+
     /// Corner table: a fast-lookup structure for the mesh connectivity.
     corner_table: CornerTable<'faces>,
 
@@ -63,7 +63,7 @@ pub(crate) struct Edgebreaker<'faces, T>
     num_split_symbols: usize,
 
     vertex_traversal_length: Vec<usize>,
-    
+
     init_face_connectivity_corners: Vec<CornerIdx>,
 
     traversal: T,
@@ -72,12 +72,12 @@ pub(crate) struct Edgebreaker<'faces, T>
     topology_splits: Vec<TopologySplit>,
 
     attribute_encoding_data: Vec<AttributeCornerTable>,
-	
-	/// configurations for the encoder
-    #[allow(unused)] // TODO: This field is not used yet, as we only support the default configuration.
-	config: Config
-}
 
+    /// configurations for the encoder
+    #[allow(unused)]
+    // TODO: This field is not used yet, as we only support the default configuration.
+    config: Config,
+}
 
 #[derive(Clone, fmt::Debug, cmp::PartialEq)]
 pub struct Config {
@@ -87,19 +87,17 @@ pub struct Config {
 
 impl ConfigType for Config {
     fn default() -> Self {
-        Self{
+        Self {
             traversal: EdgebreakerKind::Standard,
             use_single_connectivity: false,
-		}
+        }
     }
 }
 
-
 pub(crate) struct Output<'faces> {
-    pub(crate) corner_table: AllInclusiveCornerTable<'faces, >,
+    pub(crate) corner_table: AllInclusiveCornerTable<'faces>,
     pub(crate) corners_of_edgebreaker: Vec<CornerIdx>,
 }
-
 
 #[derive(Debug, PartialEq)]
 #[remain::sorted]
@@ -108,7 +106,7 @@ pub enum Err {
     #[error("Edgebreaker error: {0}")]
     EdgebreakerError(#[from] edgebreaker::Err),
     #[error("Entropy encoding error: {0}")]
-    EntropyEncodingError(#[from] crate::encode::entropy::symbol_coding::Err ),
+    EntropyEncodingError(#[from] crate::encode::entropy::symbol_coding::Err),
     #[error("Too many handles.")]
     HandleSizeTooLarge,
     #[error("Too many holes.")]
@@ -122,14 +120,20 @@ pub enum Err {
 }
 
 impl<'faces, T> Edgebreaker<'faces, T>
-    where T: Traversal
+where
+    T: Traversal,
 {
-	// Build the object with empty arrays.
-	pub fn new(config: Config, atts: &mut [Attribute], faces: &'faces [[PointIdx; 3]]) -> Result<Self, Err> {
+    // Build the object with empty arrays.
+    pub fn new(
+        config: Config,
+        atts: &mut [Attribute],
+        faces: &'faces [[PointIdx; 3]],
+    ) -> Result<Self, Err> {
         let corner_table = if config.use_single_connectivity {
             unimplemented!("Single connectivity is not supported yet.");
         } else {
-            let pos_att = atts.iter()
+            let pos_att = atts
+                .iter()
                 .find(|att| att.get_attribute_type() == AttributeType::Position)
                 .unwrap();
             CornerTable::new(faces, pos_att)
@@ -160,22 +164,25 @@ impl<'faces, T> Edgebreaker<'faces, T>
         };
 
         let num_vertices = out.corner_table.num_vertices();
-        out.visited_vertices = VecVertexIdx::from(vec!(false; num_vertices));
-        out.visited_faces = VecFaceIdx::from(vec!(false; faces.len()));
+        out.visited_vertices = VecVertexIdx::from(vec![false; num_vertices]);
+        out.visited_faces = VecFaceIdx::from(vec![false; faces.len()]);
 
         out.num_decoded_vertices = 0;
 
         Ok(out)
-	}
+    }
 
-    fn init_attribute_data(atts: &mut [Attribute], corner_table: &CornerTable, config: &Config) -> Result<Vec<AttributeCornerTable>, Err> {
+    fn init_attribute_data(
+        atts: &mut [Attribute],
+        corner_table: &CornerTable,
+        config: &Config,
+    ) -> Result<Vec<AttributeCornerTable>, Err> {
         let num_attributes = atts.len();
-        if config.use_single_connectivity && num_attributes==1 {
+        if config.use_single_connectivity && num_attributes == 1 {
             // Each attribute refers to the same connectivity attribute, so no need to create attriibute encoding data.
             return Ok(Vec::new());
         }
 
-        
         // Ignore the position attribute as it is decoded separately.
         let mut attribute_encoding_data = Vec::with_capacity(num_attributes - 1);
 
@@ -223,11 +230,7 @@ impl<'faces, T> Edgebreaker<'faces, T>
         Ok(())
     }
 
-    fn process_boundary(
-        &mut self,
-        start_corner: CornerIdx,
-        encode_first_vertex: bool,
-    ) -> usize {
+    fn process_boundary(&mut self, start_corner: CornerIdx, encode_first_vertex: bool) -> usize {
         let mut corner = self.corner_table.previous(start_corner);
         while let Some(opp) = self.corner_table.opposite(corner) {
             corner = self.corner_table.next(opp);
@@ -242,7 +245,9 @@ impl<'faces, T> Edgebreaker<'faces, T>
         }
 
         self.visited_holes[self.vertex_hole_id[start_v].unwrap()] = true; // it is safe to unwrap here as start_v is on a hole.
-        let mut curr_v = self.corner_table.vertex_idx(self.corner_table.previous(corner));
+        let mut curr_v = self
+            .corner_table
+            .vertex_idx(self.corner_table.previous(corner));
         while curr_v != start_v {
             self.visited_vertices[curr_v] = true;
             num_encoded_hole_verts += 1;
@@ -250,15 +255,15 @@ impl<'faces, T> Edgebreaker<'faces, T>
             while let Some(opp) = self.corner_table.opposite(corner) {
                 corner = self.corner_table.next(opp);
             }
-            curr_v = self.corner_table.vertex_idx(self.corner_table.previous(corner));
+            curr_v = self
+                .corner_table
+                .vertex_idx(self.corner_table.previous(corner));
         }
         num_encoded_hole_verts
     }
 
-	
-	
-	/// A function implementing the Edgebreaker algorithm for a connected component that contains `c`.
-	fn edgebreaker_from(&mut self, mut c: CornerIdx) -> Result<(), Err> {
+    /// A function implementing the Edgebreaker algorithm for a connected component that contains `c`.
+    fn edgebreaker_from(&mut self, mut c: CornerIdx) -> Result<(), Err> {
         self.corner_traversal_stack.clear();
         self.corner_traversal_stack.push(c);
         let num_faces = self.corner_table.num_faces();
@@ -283,21 +288,27 @@ impl<'faces, T> Edgebreaker<'faces, T>
                 if !self.visited_vertices[v] {
                     self.visited_vertices[v] = true;
                     if self.vertex_hole_id[v].is_none() {
-                        self.traversal.record_symbol(Symbol::C, &self.visited_faces,  &self.corner_table);
+                        self.traversal.record_symbol(
+                            Symbol::C,
+                            &self.visited_faces,
+                            &self.corner_table,
+                        );
                         c = self.corner_table.get_right_corner(c).unwrap(); // unwrap is safe here; we checked that the right edge is not on a boundary, and this implies that the right face exists.
                         continue;
                     }
                 }
                 let maybe_right_c = self.corner_table.get_right_corner(c);
                 let maybe_left_c = self.corner_table.get_left_corner(c);
-                let maybe_right_face = maybe_right_c.map(|c| self.corner_table.face_idx_containing(c));
-                let maybe_left_face = maybe_left_c.map(|c| self.corner_table.face_idx_containing(c));
+                let maybe_right_face =
+                    maybe_right_c.map(|c| self.corner_table.face_idx_containing(c));
+                let maybe_left_face =
+                    maybe_left_c.map(|c| self.corner_table.face_idx_containing(c));
                 if self.is_right_face_visited(c) {
                     if let Some(right_face) = maybe_right_face {
                         self.check_and_store_topology_split_event(
                             self.last_encoded_symbol_idx,
                             Orientation::Right,
-                            right_face
+                            right_face,
                         );
                     }
                     if self.is_left_face_visited(c) {
@@ -306,16 +317,24 @@ impl<'faces, T> Edgebreaker<'faces, T>
                             self.check_and_store_topology_split_event(
                                 self.last_encoded_symbol_idx,
                                 Orientation::Left,
-                                left_face
+                                left_face,
                             );
                         }
-                        self.traversal.record_symbol(Symbol::E, &self.visited_faces, &self.corner_table);
+                        self.traversal.record_symbol(
+                            Symbol::E,
+                            &self.visited_faces,
+                            &self.corner_table,
+                        );
                         self.corner_traversal_stack.pop();
                         // End of a branch of the traversal.
                         break;
                     } else {
                         // 'R' symbol
-                        self.traversal.record_symbol(Symbol::R, &self.visited_faces, &self.corner_table);
+                        self.traversal.record_symbol(
+                            Symbol::R,
+                            &self.visited_faces,
+                            &self.corner_table,
+                        );
                         c = maybe_left_c.unwrap(); // unwrap is safe here; we checked that the left face is not visited, which implies that the left face exist.
                     }
                 } else {
@@ -325,20 +344,29 @@ impl<'faces, T> Edgebreaker<'faces, T>
                             self.check_and_store_topology_split_event(
                                 self.last_encoded_symbol_idx,
                                 Orientation::Left,
-                                left_face
+                                left_face,
                             );
                         }
-                        self.traversal.record_symbol(Symbol::L, &self.visited_faces, &self.corner_table);
+                        self.traversal.record_symbol(
+                            Symbol::L,
+                            &self.visited_faces,
+                            &self.corner_table,
+                        );
                         c = maybe_right_c.unwrap(); // unwrap is safe here; we checked that the right face is not visited, which implies that the right face exist.
                     } else {
-                        self.traversal.record_symbol(Symbol::S, &self.visited_faces, &self.corner_table);
+                        self.traversal.record_symbol(
+                            Symbol::S,
+                            &self.visited_faces,
+                            &self.corner_table,
+                        );
                         self.num_split_symbols += 1;
                         if let Some(hole_idx) = self.vertex_hole_id[v] {
                             if !self.visited_holes[hole_idx] {
                                 self.process_boundary(c, false);
                             }
                         }
-                        self.face_to_split_symbol_map.insert(usize::from(face_idx), self.last_encoded_symbol_idx);
+                        self.face_to_split_symbol_map
+                            .insert(usize::from(face_idx), self.last_encoded_symbol_idx);
                         *self.corner_traversal_stack.last_mut().unwrap() = maybe_left_c.unwrap();
                         self.corner_traversal_stack.push(maybe_right_c.unwrap());
                         break;
@@ -371,15 +399,20 @@ impl<'faces, T> Edgebreaker<'faces, T>
         }
     }
 
-
-    fn encode_topology_splits<W>(&mut self, writer: &mut W) -> Result<(), Err> 
-        where W: ByteWriter,
+    fn encode_topology_splits<W>(&mut self, writer: &mut W) -> Result<(), Err>
+    where
+        W: ByteWriter,
     {
         #[cfg(feature = "evaluation")]
         {
             let mut string = String::new();
             for split in self.topology_splits.iter() {
-                string.push_str(&format!("{}:{}({:?}) ", split.merging_symbol_idx, split.split_symbol_idx, split.merging_edge_orientation));
+                string.push_str(&format!(
+                    "{}:{}({:?}) ",
+                    split.merging_symbol_idx,
+                    split.split_symbol_idx,
+                    split.merging_edge_orientation
+                ));
             }
             eval::write_json_pair("topology_splits", serde_json::Value::from(string), writer);
         }
@@ -388,14 +421,17 @@ impl<'faces, T> Edgebreaker<'faces, T>
         leb128_write(self.topology_splits.len() as u64, writer);
         for split in self.topology_splits.iter() {
             leb128_write((split.merging_symbol_idx - last_idx) as u64, writer);
-            leb128_write((split.merging_symbol_idx - split.split_symbol_idx) as u64, writer);
+            leb128_write(
+                (split.merging_symbol_idx - split.split_symbol_idx) as u64,
+                writer,
+            );
             last_idx = split.merging_symbol_idx;
         }
         let mut bit_coder: BitWriter<'_, W, LsbFirst> = BitWriter::spown_from(writer);
         for split in self.topology_splits.iter() {
             let orientation = match split.merging_edge_orientation {
-                Orientation::Left => (1,0),
-                Orientation::Right => (1,1),
+                Orientation::Left => (1, 0),
+                Orientation::Right => (1, 1),
             };
             bit_coder.write_bits(orientation);
         }
@@ -430,9 +466,16 @@ impl<'faces, T> Edgebreaker<'faces, T>
         (true, corner_index)
     }
 
-
-    fn check_and_store_topology_split_event(&mut self, merging_symbol_idx: usize, merging_edge_orientation: Orientation, split_face_idx: FaceIdx) {
-        let split_symbol_idx = if let Some(&idx) = self.face_to_split_symbol_map.get(&usize::from(split_face_idx)) {
+    fn check_and_store_topology_split_event(
+        &mut self,
+        merging_symbol_idx: usize,
+        merging_edge_orientation: Orientation,
+        split_face_idx: FaceIdx,
+    ) {
+        let split_symbol_idx = if let Some(&idx) = self
+            .face_to_split_symbol_map
+            .get(&usize::from(split_face_idx))
+        {
             idx
         } else {
             // The face is not split, so we do not need to store the split event.
@@ -446,21 +489,23 @@ impl<'faces, T> Edgebreaker<'faces, T>
 
         self.topology_splits.push(split);
     }
-}	
+}
 
-impl<'faces, T> ConnectivityEncoder for Edgebreaker<'faces, T> 
-    where T: Traversal
+impl<'faces, T> ConnectivityEncoder for Edgebreaker<'faces, T>
+where
+    T: Traversal,
 {
     type Config = Config;
-	type Err = Err;
+    type Err = Err;
     type Output = Output<'faces>;
-	/// The main encoding paradigm for Edgebreaker.
+    /// The main encoding paradigm for Edgebreaker.
     fn encode_connectivity<W>(
-        mut self, 
+        mut self,
         faces: &[[PointIdx; 3]],
-        writer: &mut W
-    ) -> Result<Self::Output, Self::Err> 
-        where W: ByteWriter
+        writer: &mut W,
+    ) -> Result<Self::Output, Self::Err>
+    where
+        W: ByteWriter,
     {
         debug_write!("Init Decoder", writer);
         // encode the traversal decoder type
@@ -474,8 +519,8 @@ impl<'faces, T> ConnectivityEncoder for Edgebreaker<'faces, T>
 
         writer.write_u8(self.attribute_encoding_data.len() as u8);
 
-		// Run Edgebreaker once for each connected component.
-		for c in 0..self.corner_table.num_corners() {
+        // Run Edgebreaker once for each connected component.
+        for c in 0..self.corner_table.num_corners() {
             let c = CornerIdx::from(c);
             let face_idx = self.corner_table.face_idx_containing(c);
             if self.visited_faces[face_idx] {
@@ -485,13 +530,18 @@ impl<'faces, T> ConnectivityEncoder for Edgebreaker<'faces, T>
 
             let (is_start_face_interior, start_corner) = self.begin_from(face_idx);
 
-            self.traversal.record_start_face_config(is_start_face_interior);
+            self.traversal
+                .record_start_face_config(is_start_face_interior);
 
             if is_start_face_interior {
                 let corner_index = start_corner;
                 let v = self.corner_table.vertex_idx(corner_index);
-                let n = self.corner_table.vertex_idx(self.corner_table.next(corner_index));
-                let p = self.corner_table.vertex_idx(self.corner_table.previous(corner_index));
+                let n = self
+                    .corner_table
+                    .vertex_idx(self.corner_table.next(corner_index));
+                let p = self
+                    .corner_table
+                    .vertex_idx(self.corner_table.previous(corner_index));
                 self.visited_vertices[v] = true;
                 self.visited_vertices[n] = true;
                 self.visited_vertices[p] = true;
@@ -499,16 +549,20 @@ impl<'faces, T> ConnectivityEncoder for Edgebreaker<'faces, T>
                 self.vertex_traversal_length.push(1);
 
                 self.visited_faces[face_idx] = true;
-                
-                self.init_face_connectivity_corners.push(self.corner_table.next(corner_index));
-                let corner_opp = self.corner_table.opposite(self.corner_table.next(corner_index)).unwrap(); // it is safe to unwrap since the face is interior.
+
+                self.init_face_connectivity_corners
+                    .push(self.corner_table.next(corner_index));
+                let corner_opp = self
+                    .corner_table
+                    .opposite(self.corner_table.next(corner_index))
+                    .unwrap(); // it is safe to unwrap since the face is interior.
                 self.edgebreaker_from(corner_opp)?;
             } else {
                 // if the face is on the boundary, then we start from the boundary.
                 self.process_boundary(self.corner_table.next(start_corner), true);
                 self.edgebreaker_from(start_corner)?;
             }
-		}
+        }
 
         // write the number of symbols.
         leb128_write(self.traversal.num_symbols() as u64, writer);
@@ -518,27 +572,42 @@ impl<'faces, T> ConnectivityEncoder for Edgebreaker<'faces, T>
 
         self.encode_topology_splits(writer)?;
         // encode the edgebreaker symbols.
-        self.traversal.encode(writer, &self.attribute_encoding_data, &self.corner_table)?;
+        self.traversal
+            .encode(writer, &self.attribute_encoding_data, &self.corner_table)?;
 
         self.init_face_connectivity_corners.reverse();
-        self.init_face_connectivity_corners.append(&mut self.processed_connectivity_corners);
+        self.init_face_connectivity_corners
+            .append(&mut self.processed_connectivity_corners);
 
-        Ok( Output{
-            corner_table: AllInclusiveCornerTable::new(self.corner_table, self.attribute_encoding_data, ),
+        Ok(Output {
+            corner_table: AllInclusiveCornerTable::new(
+                self.corner_table,
+                self.attribute_encoding_data,
+            ),
             corners_of_edgebreaker: self.init_face_connectivity_corners,
         })
-	}
+    }
 }
-    
-
 
 pub(crate) trait Traversal {
-    fn new(corner_table: & CornerTable<'_>) -> Self;
-    fn record_symbol(&mut self, symbol: Symbol, visited_faces: &VecFaceIdx<bool>, corner_table: & CornerTable<'_>);
+    fn new(corner_table: &CornerTable<'_>) -> Self;
+    fn record_symbol(
+        &mut self,
+        symbol: Symbol,
+        visited_faces: &VecFaceIdx<bool>,
+        corner_table: &CornerTable<'_>,
+    );
     fn record_start_face_config(&mut self, interior_cfg: bool);
     fn new_corner_reached(&mut self, corner: CornerIdx);
     fn num_symbols(&self) -> usize;
-    fn encode<W>(self, writer: &mut W, att_data: &[AttributeCornerTable], corner_table: &CornerTable<'_>) -> Result<(), Err> where W: ByteWriter;
+    fn encode<W>(
+        self,
+        writer: &mut W,
+        att_data: &[AttributeCornerTable],
+        corner_table: &CornerTable<'_>,
+    ) -> Result<(), Err>
+    where
+        W: ByteWriter;
 }
 
 pub(crate) struct DefaultTraversal {
@@ -549,14 +618,19 @@ pub(crate) struct DefaultTraversal {
 
 impl Traversal for DefaultTraversal {
     fn new(_corner_table: &CornerTable<'_>) -> Self {
-        Self { 
-            symbols: Vec::new(), 
-            interior_cfg: Vec::new(), 
+        Self {
+            symbols: Vec::new(),
+            interior_cfg: Vec::new(),
             processed_connectivity_corners: Vec::new(),
         }
     }
 
-    fn record_symbol(&mut self, symbol: Symbol, _visited_faces: &VecFaceIdx<bool>, _corner_table: & CornerTable<'_>) {
+    fn record_symbol(
+        &mut self,
+        symbol: Symbol,
+        _visited_faces: &VecFaceIdx<bool>,
+        _corner_table: &CornerTable<'_>,
+    ) {
         self.symbols.push(symbol);
     }
 
@@ -572,7 +646,15 @@ impl Traversal for DefaultTraversal {
         self.symbols.len()
     }
 
-    fn encode<W>(self, final_writer: &mut W, att_data: &[AttributeCornerTable], corner_table: &CornerTable<'_>) -> Result<(), Err> where W: ByteWriter {
+    fn encode<W>(
+        self,
+        final_writer: &mut W,
+        att_data: &[AttributeCornerTable],
+        corner_table: &CornerTable<'_>,
+    ) -> Result<(), Err>
+    where
+        W: ByteWriter,
+    {
         let mut writer = Vec::new();
         {
             let mut writer: BitWriter<'_, Vec<u8>, LsbFirst> = BitWriter::spown_from(&mut writer);
@@ -588,14 +670,15 @@ impl Traversal for DefaultTraversal {
             final_writer.write_u8(byte);
         }
 
-        
         // encode the start face configurations.
         let freq_count_0 = self.interior_cfg.iter().filter(|&&cfg| !cfg).count();
         // the probability of zero in [0,1] is scaled to [0,256], and clamped to [1,255] as the rans does not accept the zero probability.
-        let zero_prob = (((freq_count_0 as f32 / self.interior_cfg.len() as f32) * 256.0 + 0.5) as u16).clamp(1,255) as u8;
+        let zero_prob = (((freq_count_0 as f32 / self.interior_cfg.len() as f32) * 256.0 + 0.5)
+            as u16)
+            .clamp(1, 255) as u8;
         final_writer.write_u8(zero_prob);
         {
-            let mut writer: RabsCoder<> = RabsCoder::new(zero_prob as usize, None);
+            let mut writer: RabsCoder = RabsCoder::new(zero_prob as usize, None);
             for &cfg in self.interior_cfg.iter().rev() {
                 writer.write(if cfg { 1 } else { 0 })?;
             }
@@ -606,11 +689,10 @@ impl Traversal for DefaultTraversal {
             }
         }
 
-
         // compute the attribute seams
         let mut visited_faces = vec![false; corner_table.num_faces()];
         let mut seams_data = (0..att_data.len())
-            .map(|_| Vec::with_capacity(corner_table.num_corners()>>1))
+            .map(|_| Vec::with_capacity(corner_table.num_corners() >> 1))
             .collect::<Vec<_>>();
         for c in self.processed_connectivity_corners.into_iter().rev() {
             let corners = [c, corner_table.next(c), corner_table.previous(c)];
@@ -637,10 +719,11 @@ impl Traversal for DefaultTraversal {
         // encode the attribute seams.
         for seams_data in seams_data {
             let freq_count_0 = seams_data.iter().filter(|&&s| !s).count();
-            let prob_zero = (((freq_count_0 as f32 / seams_data.len() as f32) * 256.0 + 0.5) as u16).clamp(1,255) as u8;
+            let prob_zero = (((freq_count_0 as f32 / seams_data.len() as f32) * 256.0 + 0.5) as u16)
+                .clamp(1, 255) as u8;
             final_writer.write_u8(prob_zero);
             {
-                let mut writer: RabsCoder<> = RabsCoder::new(prob_zero as usize, None);
+                let mut writer: RabsCoder = RabsCoder::new(prob_zero as usize, None);
                 for &s in seams_data.iter().rev() {
                     writer.write(if s { 1 } else { 0 })?;
                 }
@@ -666,17 +749,16 @@ pub(crate) struct ValenceTraversal {
     num_symbols: usize,
 }
 
-
 impl Traversal for ValenceTraversal {
-    fn new(corner_table: & CornerTable<'_>) -> Self {
+    fn new(corner_table: &CornerTable<'_>) -> Self {
         let mut vertex_valences = Vec::with_capacity(corner_table.num_vertices());
         for i in 0..corner_table.num_vertices() {
             let v = VertexIdx::from(i);
-            vertex_valences.push( corner_table.vertex_valence(v) );
+            vertex_valences.push(corner_table.vertex_valence(v));
         }
 
         let mut corner_to_vertex_map = Vec::with_capacity(corner_table.num_corners());
-        for  i in 0..corner_table.num_corners() {
+        for i in 0..corner_table.num_corners() {
             let c = CornerIdx::from(i);
             corner_to_vertex_map[i] = corner_table.vertex_idx(c);
         }
@@ -684,7 +766,7 @@ impl Traversal for ValenceTraversal {
         let num_unique_valences = MAX_VALENCE - MIN_VALENCE + 1;
 
         let context_symbols = vec![Vec::new(); num_unique_valences];
-        Self { 
+        Self {
             vertex_valences,
             corner_to_vertex_map,
             context_symbols,
@@ -695,22 +777,27 @@ impl Traversal for ValenceTraversal {
         }
     }
 
-    fn record_symbol(&mut self, symbol: Symbol, visited_faces: &VecFaceIdx<bool>, corner_table: & CornerTable<'_>) {
+    fn record_symbol(
+        &mut self,
+        symbol: Symbol,
+        visited_faces: &VecFaceIdx<bool>,
+        corner_table: &CornerTable<'_>,
+    ) {
         self.num_symbols += 1;
-        
+
         let next = corner_table.next(self.last_corner);
         let prev = corner_table.previous(self.last_corner);
 
-
-        let active_valence = self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])];
+        let active_valence =
+            self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])];
         match symbol {
-            Symbol::C => {
-                
-            },
+            Symbol::C => {}
             Symbol::S => {
                 // Update valences.
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -= 1;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -= 1;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -=
+                    1;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -=
+                    1;
 
                 // Count the number of faces on the left side of the split vertex and
                 // update the valence on the "left vertex".
@@ -723,7 +810,9 @@ impl Traversal for ValenceTraversal {
                     num_left_faces += 1;
                     maybe_act_c = corner_table.opposite(corner_table.next(act_c));
                 }
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] = num_left_faces + 1;
+                self.vertex_valences
+                    [usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] =
+                    num_left_faces + 1;
 
                 // Create a new vertex for the right side and count the number of
                 // faces that should be attached to this vertex.
@@ -733,30 +822,40 @@ impl Traversal for ValenceTraversal {
                 maybe_act_c = corner_table.opposite(next);
                 while let Some(act_c) = maybe_act_c {
                     if visited_faces[corner_table.face_idx_containing(act_c)] {
-                        break;  // Stop when we reach the first visited face.
+                        break; // Stop when we reach the first visited face.
                     }
                     num_right_faces += 1;
                     // Map corners on the right side to the newly created vertex.
-                    self.corner_to_vertex_map[usize::from(corner_table.next(act_c))] = new_vert_id.into();
+                    self.corner_to_vertex_map[usize::from(corner_table.next(act_c))] =
+                        new_vert_id.into();
                     maybe_act_c = corner_table.opposite(corner_table.previous(act_c));
                 }
                 self.vertex_valences.push(num_right_faces + 1);
-            },
+            }
             Symbol::R => {
                 // Update valences.
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] -= 1;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -= 1;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -= 2;
-            },
-            Symbol::L =>{
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] -= 1;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -= 2;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -= 1;
-            },
+                self.vertex_valences
+                    [usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] -= 1;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -=
+                    1;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -=
+                    2;
+            }
+            Symbol::L => {
+                self.vertex_valences
+                    [usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] -= 1;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -=
+                    2;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -=
+                    1;
+            }
             Symbol::E => {
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] -= 2;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -= 2;
-                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -= 2;
+                self.vertex_valences
+                    [usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] -= 2;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -=
+                    2;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -=
+                    2;
             }
         }
 
@@ -782,27 +881,32 @@ impl Traversal for ValenceTraversal {
         self.num_symbols
     }
 
-    fn encode<W>(self, writer: &mut W, _: &[AttributeCornerTable], _: &CornerTable<'_>) -> Result<(), Err> where W: ByteWriter {
+    fn encode<W>(
+        self,
+        writer: &mut W,
+        _: &[AttributeCornerTable],
+        _: &CornerTable<'_>,
+    ) -> Result<(), Err>
+    where
+        W: ByteWriter,
+    {
         // self.encode_start_faces();
         // self.encode_attribute_seams();
 
         // Store the contexts.
         for context in self.context_symbols {
             leb128_write(context.len() as u64, writer);
-            let context = context.iter().map(|&s| s.get_id() as u64).collect::<Vec<_>>();
+            let context = context
+                .iter()
+                .map(|&s| s.get_id() as u64)
+                .collect::<Vec<_>>();
 
-            encode_symbols(
-                context, 
-                1, 
-                SymbolEncodingMethod::DirectCoded,
-                writer
-            )?;
+            encode_symbols(context, 1, SymbolEncodingMethod::DirectCoded, writer)?;
         }
 
         Ok(())
     }
 }
-
 
 // // #[cfg(not(feature = "evaluation"))]
 // #[cfg(test)]
@@ -810,7 +914,7 @@ impl Traversal for ValenceTraversal {
 //     use std::vec;
 
 //     use crate::core::attribute::AttributeId;
-//     use crate::core::shared::Vector; 
+//     use crate::core::shared::Vector;
 //     use crate::core::shared::NdVector;
 //     use crate::debug_expect;
 //     use crate::prelude::{BitReader, ByteReader};
@@ -834,9 +938,9 @@ impl Traversal for ValenceTraversal {
 
 //         let points = vec![NdVector::<3,f32>::zero(); 8];
 //         let mut point_att = Attribute::from(
-//             AttributeId::new(0), 
-//             points, 
-//             AttributeType::Position, 
+//             AttributeId::new(0),
+//             points,
+//             AttributeType::Position,
 //             Vec::new()
 //         );
 
@@ -941,7 +1045,6 @@ impl Traversal for ValenceTraversal {
 //         assert!(edgebreaker.check_orientability(&faces).is_ok());
 //         assert_eq!(edgebreaker.face_orientation, vec![true, false, true, false, false, true, true, true, true, false, true, true, false, false]);
 
-
 //         // test 2: non-orientable mesh
 //         let faces = vec![
 //             [0, 1, 3],
@@ -992,13 +1095,12 @@ impl Traversal for ValenceTraversal {
 //                 .enumerate()
 //                 .filter(|(_, (a,b))| a!=b)
 //                 .map(|(i,_)| faces[i])
-//                 .collect::<Vec<_>>()  
+//                 .collect::<Vec<_>>()
 //         );
 //     }
 
-
 //     use Symbol::*;
-//     fn read_symbols<R>(reader: &mut R, size: usize) -> Vec<Symbol> 
+//     fn read_symbols<R>(reader: &mut R, size: usize) -> Vec<Symbol>
 //         where R: ByteReader
 //     {
 //         let mut out = Vec::new();
@@ -1032,7 +1134,7 @@ impl Traversal for ValenceTraversal {
 //             // update the orientation of the topology split.
 //             split_mut.source_edge_orientation = match reader.read_bits(1).unwrap() {
 //                 0 => Orientation::Left,
-//                 1 => Orientation::Right, 
+//                 1 => Orientation::Right,
 //                 _ => unreachable!(),
 //             };
 //         }
@@ -1040,19 +1142,18 @@ impl Traversal for ValenceTraversal {
 //         topology_splits
 //     }
 
-
 //     fn manual_test<const TEST_ORIENTABILITY: bool>(
-//         mut original_faces: Vec<[VertexIdx; 3]>, 
-//         points: Vec<NdVector<3,f32>>, 
-//         expected_symbols: Vec<Symbol>, 
-//         expected_topology_splits: Vec<TopologySplit>, 
+//         mut original_faces: Vec<[VertexIdx; 3]>,
+//         points: Vec<NdVector<3,f32>>,
+//         expected_symbols: Vec<Symbol>,
+//         expected_topology_splits: Vec<TopologySplit>,
 //         expected_faces: Option<Vec<[VertexIdx; 3]>>
 //     ) {
 //         // positions do not matter
 //         let mut point_att = Attribute::from(
-//             AttributeId::new(0), 
-//             points, 
-//             AttributeType::Position, 
+//             AttributeId::new(0),
+//             points,
+//             AttributeType::Position,
 //             Vec::new()
 //         );
 
@@ -1132,9 +1233,9 @@ impl Traversal for ValenceTraversal {
 //         let expected_symbols = vec![E,E,S,R];
 
 //         let expected_faces = vec![
-//             [0,2,1], 
-//             [1,4,3], 
-//             [0,1,3], 
+//             [0,2,1],
+//             [1,4,3],
+//             [0,1,3],
 //             [0,3,5] // orientation base
 //         ];
 
@@ -1153,9 +1254,9 @@ impl Traversal for ValenceTraversal {
 //         let points = vec![NdVector::<3,f32>::zero(); faces.iter().flatten().max().unwrap()+1];
 //         let expected_symbols = vec![E,R,R,L];
 //         let expected_faces = vec![
-//             [0,2,1], 
-//             [0,1,3], 
-//             [0,3,4], 
+//             [0,2,1],
+//             [0,1,3],
+//             [0,3,4],
 //             [0,4,5] // base
 //         ];
 //         manual_test::<true>(faces, points, expected_symbols, Vec::new(), Some(expected_faces));
@@ -1215,12 +1316,11 @@ impl Traversal for ValenceTraversal {
 //         manual_test::<false>(original_faces, points, expected_symbols, expected_topology_splits, None);
 //     }
 
-
-//     // #[test] 
+//     // #[test]
 //     #[allow(unused)] // uncomment the test to run it. it is commented out as it takes a long time to run.
 //     fn connectivity_check_after_vertex_permutation() {
 //         let (bunny,_) = tobj::load_obj(
-//             format!("tests/data/punctured_sphere.obj"), 
+//             format!("tests/data/punctured_sphere.obj"),
 //             &tobj::GPU_LOAD_OPTIONS
 //         ).unwrap();
 //         let bunny = &bunny[0];
@@ -1242,8 +1342,6 @@ impl Traversal for ValenceTraversal {
 //         let mut writer = Vec::new();
 //         assert!(edgebreaker.encode_connectivity(&mut faces, &mut [&mut point_att], &mut writer).is_ok());
 
-
 //         assert!(eq::weak_eq_by_laplacian(&faces, &faces_original).unwrap());
 //     }
 // }
-

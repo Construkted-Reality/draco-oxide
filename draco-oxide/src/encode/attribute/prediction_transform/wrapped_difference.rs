@@ -1,23 +1,21 @@
+use super::PredictionTransformImpl;
 use crate::core::shared::Vector;
 use crate::prelude::{ByteWriter, NdVector};
 use crate::shared::attribute::Portable;
 use crate::utils::to_positive_i32_vec;
-use super::PredictionTransformImpl;
 
 #[cfg(feature = "evaluation")]
 use crate::eval;
 
-pub struct WrappedDifference<const N: usize> 
-{
+pub struct WrappedDifference<const N: usize> {
     _cfg: super::Config,
-    preds: Vec<NdVector<N,i32>>,
-    origs: Vec<NdVector<N,i32>>,
+    preds: Vec<NdVector<N, i32>>,
+    origs: Vec<NdVector<N, i32>>,
     max: i32,
     min: i32,
 }
 
-impl<const N: usize> WrappedDifference<N> 
-{
+impl<const N: usize> WrappedDifference<N> {
     pub fn new(_cfg: super::Config) -> Self {
         Self {
             _cfg,
@@ -29,13 +27,13 @@ impl<const N: usize> WrappedDifference<N>
     }
 }
 
-impl<const N: usize> PredictionTransformImpl<N> for WrappedDifference<N> 
-    where NdVector<N,i32>: Vector<N, Component = i32>
+impl<const N: usize> PredictionTransformImpl<N> for WrappedDifference<N>
+where
+    NdVector<N, i32>: Vector<N, Component = i32>,
 {
-
-    fn map_with_tentative_metadata(&mut self, orig: NdVector<N,i32>, pred: NdVector<N,i32>) 
-        where 
-            NdVector<N,i32>: Vector<N, Component = i32>,
+    fn map_with_tentative_metadata(&mut self, orig: NdVector<N, i32>, pred: NdVector<N, i32>)
+    where
+        NdVector<N, i32>: Vector<N, Component = i32>,
     {
         // Update min and max values for the wrapped difference
         for i in 0..N {
@@ -52,7 +50,8 @@ impl<const N: usize> PredictionTransformImpl<N> for WrappedDifference<N>
     }
 
     fn squeeze<W>(self, writer: &mut W) -> Vec<NdVector<N, i32>>
-        where W: ByteWriter
+    where
+        W: ByteWriter,
     {
         #[cfg(feature = "evaluation")]
         {
@@ -63,7 +62,7 @@ impl<const N: usize> PredictionTransformImpl<N> for WrappedDifference<N>
             }
             eval::array_scope_end(writer);
         }
-        let  diff = self.max - self.min;
+        let diff = self.max - self.min;
         let max_diff = 1 + diff;
         let mut max_corr = max_diff / 2;
         let min_corr = -max_corr;
@@ -98,4 +97,3 @@ impl<const N: usize> PredictionTransformImpl<N> for WrappedDifference<N>
         out
     }
 }
-

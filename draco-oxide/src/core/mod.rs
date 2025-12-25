@@ -1,12 +1,12 @@
 pub mod attribute;
 pub(crate) mod bit_coder;
 pub(crate) mod buffer;
+pub(crate) mod corner_table;
+pub(crate) mod material;
 pub mod mesh;
 pub(crate) mod point_cloud;
 pub(crate) mod point_cloud_builder;
-pub mod shared;
-pub(crate) mod corner_table;
-pub(crate) mod texture;
 pub(crate) mod scene;
-pub(crate) mod material;
+pub mod shared;
 pub(crate) mod structural_metadata;
+pub(crate) mod texture;

@@ -42,7 +42,9 @@ pub(crate) trait SymbolEncoder {
     fn encode_symbol(symbol: Symbol) -> Result<(u8, u64), Err>;
 
     #[allow(dead_code)] // TODO: remove this after completing the decoder.
-    fn decode_symbol<R>(reader: &mut BitReader<R>) -> Symbol where R: ByteReader;
+    fn decode_symbol<R>(reader: &mut BitReader<R>) -> Symbol
+    where
+        R: ByteReader;
 }
 
 pub(crate) struct CrLight;
@@ -57,8 +59,9 @@ impl SymbolEncoder for CrLight {
         }
     }
 
-    fn decode_symbol<R>(reader: &mut BitReader<R>) -> Symbol 
-        where R: ByteReader
+    fn decode_symbol<R>(reader: &mut BitReader<R>) -> Symbol
+    where
+        R: ByteReader,
     {
         if reader.read_bits(1).unwrap() == 0 {
             return Symbol::C;
@@ -73,8 +76,6 @@ impl SymbolEncoder for CrLight {
             0b01 => Symbol::E,
             0b10 => Symbol::S,
             _ => panic!("Internal Error: Invalid symbol encoding"),
-        }
+        };
     }
 }
-
-

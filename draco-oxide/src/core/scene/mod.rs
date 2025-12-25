@@ -1,8 +1,6 @@
 use crate::core::{
-    material::MaterialLibrary, 
-    mesh::metadata::Metadata, 
-    structural_metadata::StructuralMetadata, 
-    texture::TextureLibrary
+    material::MaterialLibrary, mesh::metadata::Metadata, structural_metadata::StructuralMetadata,
+    texture::TextureLibrary,
 };
 use crate::prelude::Mesh;
 
@@ -304,7 +302,10 @@ impl TrsMatrix {
     // Returns a boolean indicating whether any of the transforms have been set.
     // Can be used to check whether this object represents a default transform.
     pub fn transform_set(&self) -> bool {
-        self.matrix.is_some() || self.translation.is_some() || self.rotation.is_some() || self.scale.is_some()
+        self.matrix.is_some()
+            || self.translation.is_some()
+            || self.rotation.is_some()
+            || self.scale.is_some()
     }
 }
 
@@ -388,10 +389,10 @@ impl MeshGroup {
 
     // Removes all mesh instances referring to base mesh at |mesh_index|.
     pub fn remove_mesh_instances(&mut self, mesh_index: MeshIdx) {
-        self.mesh_instances.retain(|instance| instance.mesh_index != mesh_index);
+        self.mesh_instances
+            .retain(|instance| instance.mesh_index != mesh_index);
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct Animation;
@@ -569,17 +570,17 @@ impl InstanceArray {
 
     // Returns an instance from this mesh group instance array.
     pub fn get_instance(&self, index: usize) -> Result<&Instance, InstanceArrayError> {
-        self.instances.get(index).ok_or_else(|| {
-            InstanceArrayError::IndexOutOfRange(index, self.instances.len())
-        })
+        self.instances
+            .get(index)
+            .ok_or_else(|| InstanceArrayError::IndexOutOfRange(index, self.instances.len()))
     }
 
     // Returns a mutable reference to an instance from this mesh group instance array.
     pub fn get_instance_mut(&mut self, index: usize) -> Result<&mut Instance, InstanceArrayError> {
         let len = self.instances.len();
-        self.instances.get_mut(index).ok_or_else(|| {
-            InstanceArrayError::IndexOutOfRange(index, len)
-        })
+        self.instances
+            .get_mut(index)
+            .ok_or_else(|| InstanceArrayError::IndexOutOfRange(index, len))
     }
 
     // Returns all instances as a slice.
@@ -600,7 +601,10 @@ impl InstanceArray {
     // Removes an instance at the specified index.
     pub fn remove_instance(&mut self, index: usize) -> Result<Instance, InstanceArrayError> {
         if index >= self.instances.len() {
-            return Err(InstanceArrayError::IndexOutOfRange(index, self.instances.len()));
+            return Err(InstanceArrayError::IndexOutOfRange(
+                index,
+                self.instances.len(),
+            ));
         }
         Ok(self.instances.remove(index))
     }
@@ -610,7 +614,6 @@ impl InstanceArray {
         self.instances.reserve(additional);
     }
 }
-
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[allow(unused)]
@@ -627,7 +630,9 @@ pub enum Err {
     LightIndexOutOfRange(usize, usize),
     #[error("Instance array index out of range: the index {0} is greater than the number of instance arrays {1}")]
     InstanceArrayIndexOutOfRange(usize, usize),
-    #[error("Material index out of range: the index {0} is greater than the number of materials {1}")]
+    #[error(
+        "Material index out of range: the index {0} is greater than the number of materials {1}"
+    )]
     MaterialIndexOutOfRange(usize, usize),
     #[error("Failed to remove material at index {0}: the material is used in the scene")]
     MaterialUsedInScene(usize),
@@ -684,8 +689,6 @@ pub struct Scene {
     animations: Vec<Animation>,
 }
 
-
-
 impl Scene {
     pub(crate) fn new() -> Self {
         Self {
@@ -708,7 +711,7 @@ impl Scene {
         self.meshes.len() - 1
     }
 
-    pub(crate) fn get_mesh(&self, idx: MeshIdx) -> Option<&Mesh> { 
+    pub(crate) fn get_mesh(&self, idx: MeshIdx) -> Option<&Mesh> {
         self.meshes.get(idx)
     }
 
@@ -730,7 +733,9 @@ impl Scene {
         self.nodes.len() - 1
     }
 
-    pub(crate) fn num_nodes(&self)-> usize { self.nodes.len() }
+    pub(crate) fn num_nodes(&self) -> usize {
+        self.nodes.len()
+    }
 
     pub(crate) fn get_node(&self, index: SceneNodeIdx) -> Option<&SceneNode> {
         self.nodes.get(index)
@@ -760,7 +765,6 @@ impl Scene {
         &mut self.metadata
     }
 }
-
 
 // This struct is used to create a scene hierarchy from meshes in their local
 // space transformed into scene space.
@@ -882,7 +886,3 @@ impl SceneNode {
         self.children.clear();
     }
 }
-
-
-
-
