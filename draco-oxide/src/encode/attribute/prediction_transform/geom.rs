@@ -136,7 +136,7 @@ pub(crate) fn into_faithful_oct_quantization(vec: NdVector<2, i32>) -> NdVector<
     let v = *vec.get(1);
     let mut x = u;
     let mut y = v;
-    if (u == 0 && v == 0) || (u == 255 && v == 0) || (u == 0 && v == 255) {
+    if (u == 255 || u == 0) && v == 0 || (u == 0 && v == 255) {
         return NdVector::<2, i32>::from([255, 255]);
     } else if u == 0 && v > 127 {
         y = half - (v - half)

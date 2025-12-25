@@ -56,13 +56,12 @@ where
             "Octahedral transformed value out of bounds: {:?}",
             val_oct
         );
-        let quantized = val_oct * ((1 << self.quantization_bits - 1) - 1) as f32;
+        let quantized = val_oct * ((1 << (self.quantization_bits - 1)) - 1) as f32;
         let mut out = NdVector::<2, i32>::zero();
         for i in 0..2 {
             *out.get_mut(i) = *quantized.get(i) as i32;
         }
-        let out = into_faithful_oct_quantization(out);
-        out
+        into_faithful_oct_quantization(out)
     }
 }
 

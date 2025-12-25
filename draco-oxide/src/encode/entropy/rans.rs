@@ -38,7 +38,7 @@ impl<const RANS_PRECISION: usize> RansCoder<RANS_PRECISION> {
 
         let symbol = &self.rans_symbols[idx];
         let freq_count = symbol.freq_count;
-        while self.state >= (self.l_rans_base >> RANS_PRECISION) * freq_count << 8 {
+        while self.state >= ((self.l_rans_base >> RANS_PRECISION) * freq_count) << 8 {
             self.writer.write_u8((self.state & 0xFF) as u8);
             self.state >>= 8;
         }
@@ -48,6 +48,7 @@ impl<const RANS_PRECISION: usize> RansCoder<RANS_PRECISION> {
         Ok(())
     }
 
+    #[allow(clippy::identity_op)]
     pub fn flush(mut self) -> Result<Vec<u8>, Err> {
         self.state -= self.l_rans_base;
         match self.state {
@@ -97,7 +98,7 @@ impl<const RABS_PRECISION: usize> RabsCoder<RABS_PRECISION> {
         } else {
             self.freq_count_0
         };
-        if self.state >= (self.l_rabs_base >> RABS_PRECISION) * freq_count << 8 {
+        if self.state >= ((self.l_rabs_base >> RABS_PRECISION) * freq_count) << 8 {
             self.writer.write_u8((self.state & 0xFF) as u8);
             self.state >>= 8;
         }
@@ -107,6 +108,7 @@ impl<const RABS_PRECISION: usize> RabsCoder<RABS_PRECISION> {
         Ok(())
     }
 
+    #[allow(clippy::identity_op)]
     pub fn flush(mut self) -> Result<Vec<u8>, Err> {
         self.state -= self.l_rabs_base;
         match self.state {
@@ -172,8 +174,7 @@ where
         let mut distribution = Vec::with_capacity(num_symbols);
         let rans_precision = 1 << RANS_PRECISION;
         let mut total_rans_prob = 0;
-        for i in 0..num_symbols {
-            let freq = freq_counts[i];
+        for freq in freq_counts.iter().take(num_symbols).copied() {
 
             let prob = freq as f64 / total_freq;
 

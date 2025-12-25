@@ -186,13 +186,12 @@ where
         // Ignore the position attribute as it is decoded separately.
         let mut attribute_encoding_data = Vec::with_capacity(num_attributes - 1);
 
-        for i in 0..num_attributes {
+        for att in atts.iter_mut().take(num_attributes) {
             // skip the position attribute
-            let att = &mut atts[i];
             if att.get_attribute_type() == AttributeType::Position {
                 continue;
             }
-            let att_connectivity = AttributeCornerTable::new(&corner_table, att);
+            let att_connectivity = AttributeCornerTable::new(corner_table, att);
             attribute_encoding_data.push(att_connectivity);
         }
 
@@ -337,40 +336,38 @@ where
                         );
                         c = maybe_left_c.unwrap(); // unwrap is safe here; we checked that the left face is not visited, which implies that the left face exist.
                     }
-                } else {
-                    if self.is_left_face_visited(c) {
-                        // 'L' symbol
-                        if let Some(left_face) = maybe_left_face {
-                            self.check_and_store_topology_split_event(
-                                self.last_encoded_symbol_idx,
-                                Orientation::Left,
-                                left_face,
-                            );
-                        }
-                        self.traversal.record_symbol(
-                            Symbol::L,
-                            &self.visited_faces,
-                            &self.corner_table,
+                } else if self.is_left_face_visited(c) {
+                    // 'L' symbol
+                    if let Some(left_face) = maybe_left_face {
+                        self.check_and_store_topology_split_event(
+                            self.last_encoded_symbol_idx,
+                            Orientation::Left,
+                            left_face,
                         );
-                        c = maybe_right_c.unwrap(); // unwrap is safe here; we checked that the right face is not visited, which implies that the right face exist.
-                    } else {
-                        self.traversal.record_symbol(
-                            Symbol::S,
-                            &self.visited_faces,
-                            &self.corner_table,
-                        );
-                        self.num_split_symbols += 1;
-                        if let Some(hole_idx) = self.vertex_hole_id[v] {
-                            if !self.visited_holes[hole_idx] {
-                                self.process_boundary(c, false);
-                            }
-                        }
-                        self.face_to_split_symbol_map
-                            .insert(usize::from(face_idx), self.last_encoded_symbol_idx);
-                        *self.corner_traversal_stack.last_mut().unwrap() = maybe_left_c.unwrap();
-                        self.corner_traversal_stack.push(maybe_right_c.unwrap());
-                        break;
                     }
+                    self.traversal.record_symbol(
+                        Symbol::L,
+                        &self.visited_faces,
+                        &self.corner_table,
+                    );
+                    c = maybe_right_c.unwrap(); // unwrap is safe here; we checked that the right face is not visited, which implies that the right face exist.
+                } else {
+                    self.traversal.record_symbol(
+                        Symbol::S,
+                        &self.visited_faces,
+                        &self.corner_table,
+                    );
+                    self.num_split_symbols += 1;
+                    if let Some(hole_idx) = self.vertex_hole_id[v] {
+                        if !self.visited_holes[hole_idx] {
+                            self.process_boundary(c, false);
+                        }
+                    }
+                    self.face_to_split_symbol_map
+                        .insert(usize::from(face_idx), self.last_encoded_symbol_idx);
+                    *self.corner_traversal_stack.last_mut().unwrap() = maybe_left_c.unwrap();
+                    self.corner_traversal_stack.push(maybe_right_c.unwrap());
+                    break;
                 }
             }
         }
@@ -698,8 +695,8 @@ impl Traversal for DefaultTraversal {
             let corners = [c, corner_table.next(c), corner_table.previous(c)];
             let f_idx = corner_table.face_idx_containing(c);
             visited_faces[usize::from(f_idx)] = true;
-            for i in 0..3 {
-                if let Some(opp_corner) = corner_table.opposite(corners[i]) {
+            for corner in &corners {
+                if let Some(opp_corner) = corner_table.opposite(*corner) {
                     let opp_face = corner_table.face_idx_containing(opp_corner);
                     if visited_faces[usize::from(opp_face)] {
                         // if the opposite face is already visited, then we do not need to record the attribute seam.
@@ -712,7 +709,7 @@ impl Traversal for DefaultTraversal {
 
                 for (j, att_data) in att_data.iter().enumerate() {
                     // store true if the corner is on an attribute seam, false otherwise.
-                    seams_data[j].push(att_data.opposite(corners[i], &corner_table).is_none());
+                    seams_data[j].push(att_data.opposite(*corner, corner_table).is_none());
                 }
             }
         }
@@ -760,7 +757,7 @@ impl Traversal for ValenceTraversal {
         let mut corner_to_vertex_map = Vec::with_capacity(corner_table.num_corners());
         for i in 0..corner_table.num_corners() {
             let c = CornerIdx::from(i);
-            corner_to_vertex_map[i] = corner_table.vertex_idx(c);
+            corner_to_vertex_map.push(corner_table.vertex_idx(c));
         }
 
         let num_unique_valences = MAX_VALENCE - MIN_VALENCE + 1;

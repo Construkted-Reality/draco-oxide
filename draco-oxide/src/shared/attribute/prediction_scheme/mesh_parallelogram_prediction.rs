@@ -238,11 +238,10 @@ where
         let a = self.corner_table.point_idx(a);
         let b = self.corner_table.point_idx(b);
 
-        let a_coord = attribute.get::<NdVector<N, i32>, N>(a).clone();
-        let b_coord = attribute.get::<NdVector<N, i32>, N>(b).clone();
-        let diagonal_coord = attribute.get::<NdVector<N, i32>, N>(diagonal).clone();
-        let out = a_coord + b_coord - diagonal_coord;
-        out
+        let a_coord = attribute.get::<NdVector<N, i32>, N>(a);
+        let b_coord = attribute.get::<NdVector<N, i32>, N>(b);
+        let diagonal_coord = attribute.get::<NdVector<N, i32>, N>(diagonal);
+        a_coord + b_coord - diagonal_coord
     }
 }
 

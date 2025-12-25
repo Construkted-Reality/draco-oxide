@@ -47,6 +47,7 @@ pub struct GroupConfig {
 }
 
 impl GroupConfig {
+    #[allow(clippy::single_range_in_vec_init)]
     fn default_with_size(size: usize) -> Self {
         Self {
             range: vec![0..size],
@@ -55,6 +56,7 @@ impl GroupConfig {
         }
     }
 
+    #[allow(clippy::single_range_in_vec_init, clippy::needless_update)]
     fn default_for(att_ty: AttributeType, size: usize) -> Self {
         match att_ty {
             AttributeType::Position => Self {
@@ -167,7 +169,7 @@ where
     }
 
     pub(super) fn encode<const WRITE_NOW: bool, const BOOST: bool>(self) -> Result<Attribute, Err> {
-        (&self.cfg.group_cfgs[0])
+        self.cfg.group_cfgs[0]
             .prediction_scheme
             .ty
             .write_to(self.writer);
@@ -299,34 +301,32 @@ where
 
         match port_att.get_num_components() {
             1 => self.encode_portabilized::<CT, S, 1>(
-                &corner_table,
+                corner_table,
                 sequence,
                 port_att,
                 port_info_buffer,
             ),
             2 => self.encode_portabilized::<CT, S, 2>(
-                &corner_table,
+                corner_table,
                 sequence,
                 port_att,
                 port_info_buffer,
             ),
             3 => self.encode_portabilized::<CT, S, 3>(
-                &corner_table,
+                corner_table,
                 sequence,
                 port_att,
                 port_info_buffer,
             ),
             4 => self.encode_portabilized::<CT, S, 4>(
-                &corner_table,
+                corner_table,
                 sequence,
                 port_att,
                 port_info_buffer,
             ),
-            _ => {
-                return Err(Err::UnsupportedNumComponents(
-                    port_att.get_num_components() as usize
-                ));
-            }
+            _ => Err(Err::UnsupportedNumComponents(
+                port_att.get_num_components()
+            )),
         }
     }
 
@@ -371,8 +371,7 @@ where
             // ToDo: This can be a lot smarter.
             let symbols = output
                 .iter()
-                .map(|v| (0..N).map(|i| *v.get(i) as u64))
-                .flatten()
+                .flat_map(|v| (0..N).map(|i| *v.get(i) as u64))
                 .collect::<Vec<_>>();
             encode_symbols(symbols, N, SymbolEncodingMethod::DirectCoded, self.writer)?
         } else {

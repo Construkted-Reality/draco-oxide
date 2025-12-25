@@ -24,7 +24,7 @@ pub fn load_obj<P: AsRef<Path> + Debug>(path: P) -> Result<Mesh, Err> {
         .mesh
         .positions
         .chunks(3)
-        .map(|x| NdVector::from([x[0] as f32, x[1] as f32, x[2] as f32]))
+        .map(|x| NdVector::from([x[0], x[1], x[2]]))
         .collect::<Vec<_>>();
     let faces = model
         .mesh
@@ -69,7 +69,7 @@ fn load_normals(mesh: &tobj::Mesh) -> (Vec<NdVector<3, f32>>, AttributeDomain) {
     let normals = mesh
         .normals
         .chunks(3)
-        .map(|x| NdVector::from([x[0] as f32, x[1] as f32, x[2] as f32]))
+        .map(|x| NdVector::from([x[0], x[1], x[2]]))
         .collect::<Vec<_>>();
     (normals, AttributeDomain::Corner)
 }
@@ -81,7 +81,7 @@ fn load_tex_coords(mesh: &tobj::Mesh) -> (Vec<NdVector<2, f32>>, AttributeDomain
     let tex_coords = mesh
         .texcoords
         .chunks(2)
-        .map(|x| NdVector::from([x[0] as f32, x[1] as f32]))
+        .map(|x| NdVector::from([x[0], x[1]]))
         .collect::<Vec<_>>();
 
     (tex_coords, AttributeDomain::Corner)

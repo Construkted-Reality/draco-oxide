@@ -126,7 +126,7 @@ where
                 default_out
             } else {
                 let val_oct = octahedral_transform(out) + NdVector::<2, f32>::from([1.0, 1.0]);
-                let quantized = val_oct * ((1 << 8 - 1) - 1) as f32; // TODO: Stop hardcoding the quantization bits.
+                let quantized = val_oct * ((1 << (8 - 1)) - 1) as f32; // TODO: Stop hardcoding the quantization bits.
                 let mut out = NdVector::<2, i32>::zero();
                 for i in 0..2 {
                     *out.get_mut(i) = (*quantized.get(i)) as i32;

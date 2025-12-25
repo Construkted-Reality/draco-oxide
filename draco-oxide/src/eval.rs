@@ -31,7 +31,7 @@ where
     W: ByteWriter,
 {
     write_eval_begin(eval_writer);
-    let data_id = Data::DataValue.to_id();
+    let data_id = Data::Value.to_id();
     eval_writer.write_u8(data_id);
     for data in convert_json_pair_to_writable(key, val) {
         eval_writer.write_u8(data);
@@ -46,7 +46,7 @@ where
     W: ByteWriter,
 {
     write_eval_begin(eval_writer);
-    let data_id = Data::DataValue.to_id();
+    let data_id = Data::Value.to_id();
     eval_writer.write_u8(data_id);
     for data in convert_json_to_writable(val) {
         eval_writer.write_u8(data);
@@ -126,8 +126,8 @@ fn convert_writable_to_json_pair(bytes: &[u8]) -> (String, serde_json::Value) {
     let key_len = u64::from_le_bytes(key_len) as usize;
     let key = {
         let mut key = Vec::with_capacity(key_len);
-        for i in 8..key_len + 8 {
-            key.push(bytes[i] as u8);
+        for b in bytes.iter().skip(8).take(key_len) {
+            key.push(*b);
         }
         String::from_utf8(key).unwrap()
     };
@@ -135,8 +135,8 @@ fn convert_writable_to_json_pair(bytes: &[u8]) -> (String, serde_json::Value) {
     let val_len = u64::from_le_bytes(val_len) as usize;
     let val = {
         let mut val = Vec::with_capacity(val_len);
-        for i in key_len + 16..key_len + 16 + val_len {
-            val.push(bytes[i] as u8);
+        for b in bytes.iter().skip(key_len + 16).take(val_len) {
+            val.push(*b);
         }
         let str = String::from_utf8(val).unwrap();
         serde_json::from_str(&str).unwrap()
@@ -158,15 +158,12 @@ fn convert_json_to_writable(val: serde_json::Value) -> Vec<u8> {
 /// this conversion can be reversed by the `convert_json_to_writable` function.
 fn convert_writable_to_json(bytes: &[u8]) -> serde_json::Value {
     let val_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-    let val = {
-        let mut val = Vec::with_capacity(val_len);
-        for i in 8..val_len + 8 {
-            val.push(bytes[i]);
-        }
-        let str = String::from_utf8(val).unwrap();
-        serde_json::from_str(&str).unwrap()
-    };
-    val
+    let mut val = Vec::with_capacity(val_len);
+    for b in bytes.iter().skip(8).take(val_len) {
+        val.push(*b);
+    }
+    let str = String::from_utf8(val).unwrap();
+    serde_json::from_str(&str).unwrap()
 }
 
 /// converts the given bytes to a string.
@@ -228,7 +225,7 @@ where
 
     pub fn get_result(self) -> serde_json::Value {
         if let Some(result) = self.result {
-            return result;
+            result
         } else {
             panic!("tryung to get result before it is ready");
         }
@@ -364,7 +361,7 @@ impl State {
 }
 
 enum Data {
-    DataValue,
+    Value,
     BeginScope,
     EndScope,
 }
@@ -372,7 +369,7 @@ enum Data {
 impl Data {
     fn from_id(id: u8) -> Self {
         match id {
-            1 => Data::DataValue,
+            1 => Data::Value,
             2 => Data::BeginScope,
             3 => Data::EndScope,
             _ => panic!("Invalid data id"),
@@ -381,7 +378,7 @@ impl Data {
 
     fn to_id(&self) -> u8 {
         match self {
-            Data::DataValue => 1,
+            Data::Value => 1,
             Data::BeginScope => 2,
             Data::EndScope => 3,
         }
@@ -391,7 +388,7 @@ impl Data {
         let mut data = mem::take(&mut writer.data).into_iter();
         let kind = Self::from_id(data.next().unwrap());
         match kind {
-            Data::DataValue => {
+            Data::Value => {
                 State::process(writer, &mut data);
             }
             Data::BeginScope => {

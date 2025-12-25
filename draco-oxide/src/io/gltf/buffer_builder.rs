@@ -22,7 +22,7 @@ impl BufferBuilder {
     /// Append data with specified alignment. Returns (byte_offset, byte_length).
     pub fn append(&mut self, data: &[u8], alignment: usize) -> (usize, usize) {
         let padding = (alignment - (self.data.len() % alignment)) % alignment;
-        self.data.extend(std::iter::repeat(0u8).take(padding));
+        self.data.extend(std::iter::repeat_n(0u8, padding));
 
         let offset = self.data.len();
         let length = data.len();

@@ -176,29 +176,29 @@ where
             // Calculate vectors
             let pn = prev_pos - next_pos; // prev_pos - next_pos
             let pn =
-                NdVector::<3, i64>::from([*pn.get(0) as i64, *pn.get(1) as i64, *pn.get(2) as i64]);
+                NdVector::<3, i64>::from([*pn.get(0), *pn.get(1), *pn.get(2)]);
             let pn_norm2_squared = pn.dot(pn) as u64;
 
             if pn_norm2_squared != 0 {
                 let cn = curr_pos - next_pos; // curr_pos - next_pos
                 let cn = NdVector::<3, i64>::from([
-                    *cn.get(0) as i64,
-                    *cn.get(1) as i64,
-                    *cn.get(2) as i64,
+                    *cn.get(0),
+                    *cn.get(1),
+                    *cn.get(2),
                 ]);
-                let cn_dot_pn = pn.dot(cn) as i64;
+                let cn_dot_pn = pn.dot(cn);
 
                 let pn_uv = prev_uv - next_uv;
 
                 // Check for potential overflow
-                let n_uv_absmax = next_uv.get(0).abs().max(next_uv.get(1).abs()) as i64;
+                let n_uv_absmax = next_uv.get(0).abs().max(next_uv.get(1).abs());
                 if n_uv_absmax > i64::MAX / pn_norm2_squared as i64 {
                     // Overflow would occur, fallback to simple prediction
                     return self.fallback_predict(i, vertices_up_till_now, attribute);
                 }
 
-                let pn_uv_absmax = pn_uv.get(0).abs().max(pn_uv.get(1).abs()) as i64;
-                if cn_dot_pn.abs() as i64 > i64::MAX / pn_uv_absmax {
+                let pn_uv_absmax = pn_uv.get(0).abs().max(pn_uv.get(1).abs());
+                if cn_dot_pn.abs() > i64::MAX / pn_uv_absmax {
                     // Overflow would occur, fallback to simple prediction
                     return self.fallback_predict(i, vertices_up_till_now, attribute);
                 }
@@ -207,7 +207,7 @@ where
                 let x_uv = next_uv * pn_norm2_squared as i64 + pn_uv * cn_dot_pn;
 
                 // Check for overflow in position calculation
-                let pn_absmax = pn.get(0).abs().max(pn.get(1).abs()).max(pn.get(2).abs()) as i64;
+                let pn_absmax = pn.get(0).abs().max(pn.get(1).abs()).max(pn.get(2).abs());
                 if cn_dot_pn.abs() > i64::MAX / pn_absmax {
                     // Overflow would occur, fallback to simple prediction
                     return self.fallback_predict(i, vertices_up_till_now, attribute);

@@ -34,8 +34,7 @@ fn decode_with_cpp_draco(drc_path: &Path, obj_output_path: &Path) -> io::Result<
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("draco_decoder failed: {}", stderr),
         ));
     }
@@ -88,7 +87,7 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
     let timestamp = Local::now().format("%Y%m%d-%H%M%S");
     let dir_name = format!("analyzer/outputs/{}_{}", mesh_name, timestamp);
     let out_dir = Path::new(&dir_name);
-    create_dir_all(&out_dir)?;
+    create_dir_all(out_dir)?;
 
     // Copy original GLB/glTF file and its dependencies
     // Preserve the original file extension to avoid GLTFLoader confusion
@@ -97,7 +96,7 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
         .and_then(|ext| ext.to_str())
         .unwrap_or("glb");
     let input_file_path = out_dir.join(format!("input.{}", original_extension));
-    copy_gltf_with_dependencies(original, &input_file_path, &out_dir)?;
+    copy_gltf_with_dependencies(original, &input_file_path, out_dir)?;
 
     // Create output paths - use "output.glb" to match HTML template expectations
     let compressed_output_path = out_dir.join("output.glb");
@@ -122,7 +121,7 @@ pub fn process_glb_file(original: &PathBuf) -> io::Result<()> {
         Err(e) => {
             eprintln!("Warning: Transcoding failed ({}), using fallback copy", e);
             // Fallback: Copy original file and its dependencies as result
-            copy_gltf_with_dependencies(original, &compressed_output_path, &out_dir)?;
+            copy_gltf_with_dependencies(original, &compressed_output_path, out_dir)?;
         }
     }
 
@@ -185,12 +184,12 @@ pub fn generate_html_report(original: &PathBuf) -> io::Result<()> {
     let timestamp = Local::now().format("%Y%m%d-%H%M%S");
     let dir_name = format!("analyzer/outputs/{}_{}", mesh_name, timestamp);
     let out_dir = Path::new(&dir_name);
-    create_dir_all(&out_dir)?;
+    create_dir_all(out_dir)?;
 
     let obj_filename = original.file_name().unwrap_or_default();
-    copy(original, out_dir.join(&obj_filename))?;
+    copy(original, out_dir.join(obj_filename))?;
 
-    compress_and_decompress(original, &out_dir)?;
+    compress_and_decompress(original, out_dir)?;
 
     // Copy assets
     let js_src = Path::new("analyzer/assets/viewer.js");

@@ -112,12 +112,12 @@ impl PredictionSchemeType {
             0xFE => PredictionSchemeType::NoPrediction, // -2 in i8
             0xFF => PredictionSchemeType::Invalid,      // -1 in i8
             // If the id is not recognized, return an error.
-            _ => return Err(id as usize),
+            _ => return Err(id),
         };
         Ok(out)
     }
 
-    #[allow(unused)]
+    #[allow(unused, clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         match self {
             PredictionSchemeType::DeltaPrediction => "DeltaPrediction".to_string(),

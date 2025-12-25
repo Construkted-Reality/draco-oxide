@@ -81,7 +81,7 @@ where
     let mut encoder = RansSymbolEncoder::<'_, _, 5, 12>::new(writer, freq_counts, None)?;
     for i in (0..symbols.len() / num_components).rev() {
         let bit_length = bit_lengths[i] as usize;
-        encoder.write(bit_length as usize)?;
+        encoder.write(bit_length)?;
 
         // Values are always encoded in the normal order
         let j = symbols.len() - num_components - i * num_components;

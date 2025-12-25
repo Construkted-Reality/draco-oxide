@@ -53,7 +53,7 @@ where
                 EdgebreakerKind::Standard => {
                     let encoder =
                         edgebreaker::Edgebreaker::<DefaultTraversal>::new(cfg, atts, faces)?;
-                    encoder.encode_connectivity(&faces, writer)
+                    encoder.encode_connectivity(faces, writer)
                 }
                 EdgebreakerKind::Predictive => {
                     unimplemented!("Predictive edgebreaker encoding is not implemented yet");
@@ -61,14 +61,14 @@ where
                 EdgebreakerKind::Valence => {
                     let encoder =
                         edgebreaker::Edgebreaker::<ValenceTraversal>::new(cfg, atts, faces)?;
-                    encoder.encode_connectivity(&faces, writer)
+                    encoder.encode_connectivity(faces, writer)
                 }
             };
 
             #[cfg(feature = "evaluation")]
             eval::scope_end(writer);
 
-            result.map(|o| ConnectivityEncoderOutput::Edgebreaker(o))?
+            result.map(ConnectivityEncoderOutput::Edgebreaker)?
         }
         Config::Sequential(cfg) => {
             #[cfg(feature = "evaluation")]
@@ -80,12 +80,12 @@ where
                 .unwrap()
                 .len();
             let encoder = sequential::Sequential::new(cfg, num_points);
-            let result = encoder.encode_connectivity(faces, writer)?;
+            encoder.encode_connectivity(faces, writer)?;
 
             #[cfg(feature = "evaluation")]
             eval::scope_end(writer);
 
-            ConnectivityEncoderOutput::Sequential(result)
+            ConnectivityEncoderOutput::Sequential(())
         }
     };
     Ok(result)

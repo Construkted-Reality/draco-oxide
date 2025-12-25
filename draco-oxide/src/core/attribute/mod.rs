@@ -126,7 +126,7 @@ impl Attribute {
         Data: Vector<N>,
     {
         let buffer = buffer::attribute::AttributeBuffer::from_vec(data);
-        let out = Self {
+        Self {
             id,
             buffer,
             parents,
@@ -134,8 +134,7 @@ impl Attribute {
             domain,
             point_to_att_val_map: None,
             name: None,
-        };
-        out
+        }
     }
 
     pub fn get<Data, const N: usize>(&self, p_idx: PointIdx) -> Data

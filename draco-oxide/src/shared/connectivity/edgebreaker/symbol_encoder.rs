@@ -71,11 +71,11 @@ impl SymbolEncoder for CrLight {
             return Symbol::R;
         }
 
-        return match reader.read_bits(2).unwrap() {
+        match reader.read_bits(2).unwrap() {
             0b00 => Symbol::L,
             0b01 => Symbol::E,
             0b10 => Symbol::S,
             _ => panic!("Internal Error: Invalid symbol encoding"),
-        };
+        }
     }
 }
