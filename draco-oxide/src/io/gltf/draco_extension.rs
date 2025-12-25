@@ -1,0 +1,168 @@
+//! KHR_draco_mesh_compression extension handling.
+
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+pub const EXTENSION_NAME: &str = "KHR_draco_mesh_compression";
+
+#[derive(Debug, Clone, Default)]
+pub struct DracoAttributeIds {
+    pub ids: HashMap<String, u32>,
+}
+
+impl DracoAttributeIds {
+    pub fn new() -> Self {
+        Self { ids: HashMap::new() }
+    }
+
+    pub fn insert(&mut self, name: &str, id: u32) {
+        self.ids.insert(name.to_string(), id);
+    }
+}
+
+pub fn is_draco_compressed(primitive: &Value) -> bool {
+    primitive.get("extensions").and_then(|e| e.get(EXTENSION_NAME)).is_some()
+}
+
+pub fn is_triangle_primitive(primitive: &Value) -> bool {
+    primitive.get("mode").and_then(|m| m.as_u64()).unwrap_or(4) == 4
+}
+
+pub fn primitive_mode_name(mode: u64) -> &'static str {
+    match mode {
+        0 => "POINTS", 1 => "LINES", 2 => "LINE_LOOP", 3 => "LINE_STRIP",
+        4 => "TRIANGLES", 5 => "TRIANGLE_STRIP", 6 => "TRIANGLE_FAN",
+        _ => "UNKNOWN",
+    }
+}
+
+pub fn add_draco_extension(
+    json: &mut Value,
+    mesh_idx: usize,
+    primitive_idx: usize,
+    draco_buffer_view_idx: usize,
+    attribute_ids: &DracoAttributeIds,
+    indices_accessor_idx: Option<u64>,
+) {
+    let mut extension = Map::new();
+    extension.insert("bufferView".to_string(), json!(draco_buffer_view_idx));
+
+    let mut attributes = Map::new();
+    for (name, id) in &attribute_ids.ids {
+        attributes.insert(name.clone(), json!(id));
+    }
+    extension.insert("attributes".to_string(), Value::Object(attributes));
+
+    let primitive = &mut json["meshes"][mesh_idx]["primitives"][primitive_idx];
+
+    if primitive.get("extensions").is_none() {
+        primitive["extensions"] = json!({});
+    }
+    primitive["extensions"][EXTENSION_NAME] = Value::Object(extension);
+
+    if let Some(attrs) = primitive.get("attributes").cloned() {
+        if let Some(attrs_obj) = attrs.as_object() {
+            for (_, accessor_idx) in attrs_obj {
+                if let Some(idx) = accessor_idx.as_u64() {
+                    clear_accessor_buffer_refs(json, idx as usize);
+                }
+            }
+        }
+    }
+
+    if let Some(idx) = indices_accessor_idx {
+        clear_accessor_buffer_refs(json, idx as usize);
+    }
+}
+
+fn clear_accessor_buffer_refs(json: &mut Value, accessor_idx: usize) {
+    if let Some(accessor) = json.get_mut("accessors")
+        .and_then(|a| a.get_mut(accessor_idx))
+        .and_then(|a| a.as_object_mut())
+    {
+        accessor.remove("bufferView");
+        accessor.remove("byteOffset");
+    }
+}
+
+pub fn ensure_extension_declared(json: &mut Value) {
+    if json.get("extensionsUsed").is_none() {
+        json["extensionsUsed"] = json!([]);
+    }
+    if let Some(arr) = json["extensionsUsed"].as_array_mut() {
+        if !arr.iter().any(|v| v.as_str() == Some(EXTENSION_NAME)) {
+            arr.push(json!(EXTENSION_NAME));
+        }
+    }
+
+    if json.get("extensionsRequired").is_none() {
+        json["extensionsRequired"] = json!([]);
+    }
+    if let Some(arr) = json["extensionsRequired"].as_array_mut() {
+        if !arr.iter().any(|v| v.as_str() == Some(EXTENSION_NAME)) {
+            arr.push(json!(EXTENSION_NAME));
+        }
+    }
+}
+
+pub fn add_buffer_view(json: &mut Value, buffer_idx: usize, byte_offset: usize, byte_length: usize) -> usize {
+    if json.get("bufferViews").is_none() {
+        json["bufferViews"] = json!([]);
+    }
+
+    let buffer_view = json!({ "buffer": buffer_idx, "byteOffset": byte_offset, "byteLength": byte_length });
+    let arr = json["bufferViews"].as_array_mut().unwrap();
+    let idx = arr.len();
+    arr.push(buffer_view);
+    idx
+}
+
+pub fn update_buffer_length(json: &mut Value, buffer_idx: usize, byte_length: usize) {
+    if let Some(buffer) = json.get_mut("buffers")
+        .and_then(|b| b.get_mut(buffer_idx))
+        .and_then(|b| b.as_object_mut())
+    {
+        buffer.insert("byteLength".to_string(), json!(byte_length));
+    }
+}
+
+pub fn set_buffer_uri(json: &mut Value, buffer_idx: usize, uri: Option<&str>) {
+    if let Some(buffer) = json.get_mut("buffers")
+        .and_then(|b| b.get_mut(buffer_idx))
+        .and_then(|b| b.as_object_mut())
+    {
+        match uri {
+            Some(u) => { buffer.insert("uri".to_string(), json!(u)); }
+            None => { buffer.remove("uri"); }
+        }
+    }
+}
+
+pub fn update_buffer_view_offset(json: &mut Value, buffer_view_idx: usize, new_offset: usize) {
+    if let Some(bv) = json.get_mut("bufferViews")
+        .and_then(|b| b.get_mut(buffer_view_idx))
+        .and_then(|b| b.as_object_mut())
+    {
+        bv.insert("byteOffset".to_string(), json!(new_offset));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_draco_compressed() {
+        let compressed = json!({ "extensions": { "KHR_draco_mesh_compression": { "bufferView": 0 } } });
+        let uncompressed = json!({ "attributes": { "POSITION": 0 } });
+        assert!(is_draco_compressed(&compressed));
+        assert!(!is_draco_compressed(&uncompressed));
+    }
+
+    #[test]
+    fn test_is_triangle_primitive() {
+        assert!(is_triangle_primitive(&json!({})));
+        assert!(is_triangle_primitive(&json!({"mode": 4})));
+        assert!(!is_triangle_primitive(&json!({"mode": 0})));
+    }
+}
