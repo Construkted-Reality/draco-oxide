@@ -1,20 +1,28 @@
-use draco_oxide::io::gltf::transcoder::DracoTranscoder;
+use draco_oxide::io::gltf::GltfTranscoder;
+use std::path::Path;
+
 fn main() {
     // input file
-    let input = "input.gltf";
+    let input_path = "input.glb";
 
     // output file
-    let output = "output.glb";
-    
+    let output_path = "output.glb";
+
+    // Read input file
+    let input = std::fs::read(input_path).expect("Failed to read input file");
+
     // Create transcoder with default options
-    let mut transcoder = DracoTranscoder::create(None).unwrap();
+    let transcoder = GltfTranscoder::default();
 
-    // Set up file options
-    let file_options = draco_oxide::io::gltf::transcoder::FileOptions::new(
-        input.to_string(),
-        output.to_string(),
-    );
+    // Transcode and write to file
+    let warnings = transcoder
+        .transcode_to_file(&input, Path::new(output_path))
+        .expect("Transcoding failed");
 
-    // transcode the GLTF file
-    transcoder.transcode_file(&file_options).unwrap();
+    // Print any warnings
+    for warning in warnings {
+        println!("Warning: {}", warning);
+    }
+
+    println!("Transcoding complete: {} -> {}", input_path, output_path);
 }

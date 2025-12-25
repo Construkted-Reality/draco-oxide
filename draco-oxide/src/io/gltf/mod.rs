@@ -1,5 +1,10 @@
-pub mod encode;
-pub mod decode;
-pub mod transcoder;
-pub mod scene_io;
+//! glTF file format support with Draco compression.
 
+pub mod buffer_builder;
+pub mod decode;
+pub mod draco_extension;
+pub mod geometry_extractor;
+pub mod glb;
+pub mod transcoder;
+
+pub use transcoder::{Error, GltfTranscoder, OutputFormat, TranscodeResult, TranscoderConfig};

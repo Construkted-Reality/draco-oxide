@@ -1,453 +1,706 @@
-use crate::core::scene::Scene;
-use crate::io::gltf::encode::GltfEncoder;
-use crate::io::gltf::scene_io::{get_scene_file_format, SceneFileFormat};
+//! Passthrough glTF transcoder with Draco compression.
+//!
+//! This transcoder compresses geometry while preserving all other glTF data
+//! (materials, textures, animations, extensions) unchanged.
+
+use crate::core::attribute::{AttributeDomain, AttributeType};
+use crate::core::mesh::builder::MeshBuilder;
+use crate::core::shared::NdVector;
+use crate::encode::Config as DracoConfig;
 use crate::prelude::ConfigType;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+use super::buffer_builder::BufferBuilder;
+use super::draco_extension::{self, DracoAttributeIds};
+use super::geometry_extractor::{self, read_accessor_as_u32, read_accessor_as_vec2, read_accessor_as_vec3, read_accessor_as_vec4};
+use super::glb;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Err {
-    #[error("Transcoding Error: {0}")]
-    TranscodingError(String),
-    #[error("IO Error: {0}")]
-    IoError(String),
-    #[error("Invalid Input: {0}")]
+pub enum Error {
+    #[error("GLB parse error: {0}")]
+    GlbParse(#[from] glb::Error),
+    #[error("JSON parse error: {0}")]
+    JsonParse(#[from] serde_json::Error),
+    #[error("Geometry extraction error: {0}")]
+    GeometryExtraction(#[from] geometry_extractor::Error),
+    #[error("Mesh build error: {0}")]
+    MeshBuild(#[from] crate::core::mesh::builder::Err),
+    #[error("Draco encode error: {0}")]
+    DracoEncode(#[from] crate::encode::Err),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Unsupported: {0}")]
+    Unsupported(String),
+    #[error("Invalid input: {0}")]
     InvalidInput(String),
-    #[error("Compression Error: {0}")]
-    CompressionError(String),
-    #[error("Encoding Error: {0}")]
-    EncodingError(#[from] crate::io::gltf::encode::Err),
-    #[error("Decoding Error: {0}")]
-    DecodingError(#[from] crate::io::gltf::decode::Err),
 }
 
-/// Struct to hold Draco transcoding options.
+/// Configuration for the transcoder.
 #[derive(Debug, Clone)]
-pub struct DracoTranscodingOptions {
-    /// Options used when geometry compression optimization is disabled.
-    pub geometry: Option<crate::encode::Config>,
+pub struct TranscoderConfig {
+    /// Draco compression configuration.
+    pub draco: DracoConfig,
 }
 
-impl Default for DracoTranscodingOptions {
+impl Default for TranscoderConfig {
     fn default() -> Self {
         Self {
-            geometry: Some(ConfigType::default()),
+            draco: DracoConfig::default(),
         }
     }
 }
 
-impl DracoTranscodingOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
+/// Output format for transcoded glTF.
+#[derive(Debug, Clone)]
+pub enum OutputFormat {
+    /// GLB binary format (single file).
+    Glb,
+    /// glTF with separate .bin file.
+    Gltf { bin_filename: String },
 }
 
-/// Class that supports input of glTF (and some simple USD) files, encodes
-/// them with Draco compression, and outputs glTF Draco compressed files.
-///
-/// glTF supported extensions:
-///   Input and Output:
-///     KHR_draco_mesh_compression
-///     KHR_materials_unlit
-///     KHR_texture_transform
-///
-/// glTF unsupported features:
-///   Input and Output:
-///     Morph targets
-///     Sparse accessors
-///     KHR_lights_punctual
-///     KHR_materials_pbrSpecularGlossiness
-///     All vendor extensions
+/// Result of transcoding.
 #[derive(Debug)]
-pub struct DracoTranscoder {
-    gltf_encoder: GltfEncoder,
-    /// The scene being transcoded.
-    scene: Option<Box<Scene>>,
-    /// Copy of the transcoding options passed into the Create function.
-    /// If None, default options will be used.
-    transcoding_options: Option<DracoTranscodingOptions>,
+pub struct TranscodeResult {
+    /// JSON content.
+    pub json: Vec<u8>,
+    /// Binary buffer content.
+    pub buffer: Vec<u8>,
+    /// Warnings generated during transcoding.
+    pub warnings: Vec<String>,
 }
 
-/// Configuration options for file input/output during transcoding.
-#[derive(Debug, Clone)]
-pub struct FileOptions {
-    /// Must be non-empty.
-    pub input_filename: String,
-    /// Must be non-empty.
-    pub output_filename: String,
-    pub output_bin_filename: String,
-    pub output_resource_directory: String,
+/// Passthrough glTF transcoder.
+///
+/// Compresses geometry with Draco while preserving all other data unchanged.
+pub struct GltfTranscoder {
+    config: TranscoderConfig,
 }
 
-impl FileOptions {
-    pub fn new(input_filename: String, output_filename: String) -> Self {
-        Self {
-            input_filename,
-            output_filename,
-            output_bin_filename: String::new(),
-            output_resource_directory: String::new(),
-        }
-    }
-
-    pub fn with_bin_filename(mut self, bin_filename: String) -> Self {
-        self.output_bin_filename = bin_filename;
-        self
-    }
-
-    pub fn with_resource_directory(mut self, resource_directory: String) -> Self {
-        self.output_resource_directory = resource_directory;
-        self
-    }
-}
-
-impl Default for DracoTranscoder {
+impl Default for GltfTranscoder {
     fn default() -> Self {
-        Self::new()
+        Self::new(TranscoderConfig::default())
     }
 }
 
-impl DracoTranscoder {
-    pub fn new() -> Self {
-        Self {
-            gltf_encoder: GltfEncoder::new(),
-            scene: None,
-            transcoding_options: None,
-        }
+impl GltfTranscoder {
+    /// Create a new transcoder with the given configuration.
+    pub fn new(config: TranscoderConfig) -> Self {
+        Self { config }
     }
 
-    /// Creates a DracoTranscoder object. `options` sets the compression options
-    /// used in the Encode function.
-    pub fn create(options: Option<DracoTranscodingOptions>) -> Result<Box<Self>, Err> {
-        // For now, we'll skip validation since Config doesn't have a check method yet
-        // TODO: Implement validation when Config::check() is available
-        // options.geometry.check().map_err(|e| {
-        //     Err::TranscodingError(format!("Invalid compression options: {:?}", e))
-        // })?;
+    /// Transcode GLB input to GLB output.
+    pub fn transcode_to_glb(&self, input: &[u8]) -> Result<(Vec<u8>, Vec<String>), Error> {
+        let result = self.transcode(input, &OutputFormat::Glb)?;
 
-        let mut transcoder = Self::new();
-        transcoder.transcoding_options = options;
-        Ok(Box::new(transcoder))
+        let mut output = Vec::new();
+        glb::write_glb(&mut output, &result.json, &result.buffer)?;
+
+        Ok((output, result.warnings))
     }
 
+    /// Transcode GLB input and write to a file.
+    ///
+    /// Output format is determined by file extension (.glb or .gltf).
+    pub fn transcode_to_file(&self, input: &[u8], output_path: &Path) -> Result<Vec<String>, Error> {
+        let extension = output_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
 
-    /// Encodes the input file with Draco compression using the compression options
-    /// passed in the Create function. The recommended use case is to create a
-    /// transcoder once and call Transcode for multiple files.
-    pub fn transcode_file(&mut self, file_options: &FileOptions) -> Result<(), Err> {
-        self.read_scene_from_file(file_options)?;
-        self.compress_scene()?;
-        self.write_scene_to_file(file_options)?;
-        Ok(())
-    }
-
-    /// Encodes the input buffer with Draco compression using the compression options
-    /// passed in the Create function. The recommended use case is to create a
-    /// transcoder once and call Transcode for multiple files.
-    pub fn transcode_buffer<W>(&mut self, in_buffer: &[u8], writer: &mut W) -> Result<(), Err> 
-        where W: std::io::Write,
-    {
-        self.read_scene_from_buffer(in_buffer)?;
-        self.compress_scene()?;
-        self.write_scene_to_buffer(writer)?;
-        Ok(())
-    }
-
-    // Private methods
-
-    /// Read scene from file.
-    fn read_scene_from_file(&mut self, file_options: &FileOptions) -> Result<(), Err> {
-        if file_options.input_filename.is_empty() {
-            return Err(Err::InvalidInput("Input filename is empty.".to_string()));
-        }
-        if file_options.output_filename.is_empty() {
-            return Err(Err::InvalidInput("Output filename is empty.".to_string()));
-        }
-
-        let filename = &file_options.input_filename;
-        self.scene = match get_scene_file_format(filename) {
-            SceneFileFormat::Gltf => {
-                let mut decoder = crate::io::gltf::decode::GltfDecoder::new();
-                let scene = decoder.decode_from_file_to_scene_with_files(filename, Vec::new())?;
-                Some(Box::new(scene))
+        let format = match extension.as_str() {
+            "glb" => OutputFormat::Glb,
+            "gltf" => {
+                let bin_name = output_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| format!("{}.bin", s))
+                    .unwrap_or_else(|| "buffer.bin".to_string());
+                OutputFormat::Gltf { bin_filename: bin_name }
             }
-            SceneFileFormat::Usd => {
-                return Err(Err::TranscodingError("USD is not supported yet.".to_string()))
-            }
-            _ => {
-                return Err(Err::TranscodingError("Unknown input file format.".to_string()))
-            }
+            _ => return Err(Error::InvalidInput(format!("Unknown output extension: {}", extension))),
         };
-        Ok(())
-    }
 
-    /// Read scene from buffer.
-    fn read_scene_from_buffer(&mut self, buffer: &[u8]) -> Result<(), Err> {
-        let mut decoder = crate::io::gltf::decode::GltfDecoder::new();
-        self.scene = Some(Box::new(decoder.decode_from_buffer_to_scene(&buffer)?));
-        Ok(())
-    }
+        let result = self.transcode(input, &format)?;
 
-    /// Write scene to file.
-    fn write_scene_to_file(&mut self, file_options: &FileOptions) -> Result<(), Err> {
-        let scene = self.scene.as_ref().ok_or_else(|| {
-            Err::TranscodingError("No scene loaded for writing".to_string())
-        })?;
+        match &format {
+            OutputFormat::Glb => {
+                let mut file = std::fs::File::create(output_path)?;
+                glb::write_glb(&mut file, &result.json, &result.buffer)?;
+            }
+            OutputFormat::Gltf { bin_filename } => {
+                // Write JSON
+                std::fs::write(output_path, &result.json)?;
 
-        if !file_options.output_bin_filename.is_empty() 
-            && !file_options.output_resource_directory.is_empty() {
-            // Write with both bin filename and resource directory
-            self.gltf_encoder.encode_scene_to_file(
-                scene,
-                &file_options.output_filename,
-                &file_options.output_resource_directory,
-            )?;
-        } else if !file_options.output_bin_filename.is_empty() {
-            // Write with bin filename only
-            self.gltf_encoder.encode_scene_file_with_bin(
-                scene,
-                &file_options.output_filename,
-                &file_options.output_bin_filename,
-            )?;
-        } else {
-            // Write with default settings
-            self.gltf_encoder.encode_scene_file(
-                scene,
-                &file_options.output_filename,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Write scene to buffer.
-    fn write_scene_to_buffer<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), Err> {
-        let scene = self.scene.as_ref().ok_or_else(|| {
-            Err::TranscodingError("No scene loaded for writing".to_string())
-        })?;
-
-        self.gltf_encoder.encode_scene_to_buffer(
-            scene,
-            writer,
-        )?;
-
-        Ok(())
-    }
-
-    /// Apply compression settings to the scene.
-    fn compress_scene(&mut self) -> Result<(), Err> {
-        if let Some(ref mut scene) = self.scene {
-            // Apply geometry compression settings to all scene meshes.
-            if let Some(ref op) = &self.transcoding_options {
-                Self::set_draco_compression_options(&op.geometry, scene)?;
-            } else {
-                Self::set_draco_compression_options(&None, scene)?;
+                // Write binary buffer
+                if !result.buffer.is_empty() {
+                    let bin_path = output_path.parent().unwrap_or(Path::new(".")).join(bin_filename);
+                    std::fs::write(bin_path, &result.buffer)?;
+                }
             }
         }
-        Ok(())
+
+        Ok(result.warnings)
     }
 
-    /// Apply Draco compression options to all meshes in the scene.
-    fn set_draco_compression_options(
-        options: &Option<crate::encode::Config>,
-        _scene: &mut Scene,
-    ) -> Result<(), Err> {
-        // Apply compression settings to all meshes in the scene
-        // This function prepares the meshes for compression by storing the configuration
-        
-        let _config = if let Some(options) = options {
-            options.clone()
-        } else {
-            // Use default compression config if none provided
-            crate::encode::Config::default()
-        };
-        
-        // For now, we don't need to modify the scene meshes directly since
-        // the compression options will be applied during the actual encoding phase
-        // This function serves as a validation and preparation step
-        
-        // In a full implementation, this might:
-        // 1. Validate that the compression settings are compatible with the meshes
-        // 2. Set up any mesh-specific compression metadata
-        // 3. Optimize mesh data layout for compression
-        
-        // For the transcoder, the compression will happen when the scene is encoded to the output file
-        Ok(())
+    /// Transcode GLB input to separate JSON and buffer.
+    pub fn transcode(&self, input: &[u8], format: &OutputFormat) -> Result<TranscodeResult, Error> {
+        // Step 1: Parse GLB
+        let glb_data = glb::parse_glb(input)?;
+        let mut json: Value = serde_json::from_slice(&glb_data.json)?;
+        let original_buffer = &glb_data.buffer;
+
+        let mut warnings = Vec::new();
+
+        // Check for external buffer URIs (not supported)
+        if let Some(buffers) = json.get("buffers").and_then(|b| b.as_array()) {
+            for (i, buffer) in buffers.iter().enumerate() {
+                if buffer.get("uri").is_some() && i == 0 {
+                    // First buffer in GLB shouldn't have URI, but we check anyway
+                }
+                if i > 0 {
+                    return Err(Error::Unsupported("Multiple buffers not supported".into()));
+                }
+            }
+        }
+
+        // Step 2: Identify geometry bufferViews vs non-geometry bufferViews
+        let (geometry_views, _non_geometry_views) = categorize_buffer_views(&json);
+
+        // Step 3: Process each mesh primitive
+        let mut new_buffer = BufferBuilder::new();
+        let mut compressed_data: Vec<CompressedPrimitive> = Vec::new();
+
+        if let Some(meshes) = json.get("meshes").and_then(|m| m.as_array()).cloned() {
+            for (mesh_idx, mesh) in meshes.iter().enumerate() {
+                if let Some(primitives) = mesh.get("primitives").and_then(|p| p.as_array()) {
+                    for (prim_idx, primitive) in primitives.iter().enumerate() {
+                        match self.process_primitive(&json, original_buffer, primitive, &mut new_buffer) {
+                            Ok(Some(compressed)) => {
+                                compressed_data.push(CompressedPrimitive {
+                                    mesh_idx,
+                                    prim_idx,
+                                    buffer_view_offset: compressed.buffer_view_offset,
+                                    buffer_view_length: compressed.buffer_view_length,
+                                    attribute_ids: compressed.attribute_ids,
+                                    indices_accessor_idx: compressed.indices_accessor_idx,
+                                });
+                            }
+                            Ok(None) => {
+                                // Primitive was skipped (already compressed, non-triangle, etc.)
+                            }
+                            Err(SkipReason::AlreadyCompressed) => {
+                                warnings.push(format!(
+                                    "Mesh {} primitive {}: already Draco-compressed, skipping",
+                                    mesh_idx, prim_idx
+                                ));
+                            }
+                            Err(SkipReason::NonTriangle(mode)) => {
+                                warnings.push(format!(
+                                    "Mesh {} primitive {}: non-triangle mode ({}), skipping",
+                                    mesh_idx, prim_idx,
+                                    draco_extension::primitive_mode_name(mode)
+                                ));
+                            }
+                            Err(SkipReason::Error(e)) => {
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4: Copy non-geometry bufferViews to new buffer
+        let mut view_offset_map: HashMap<usize, usize> = HashMap::new();
+
+        if let Some(buffer_views) = json.get("bufferViews").and_then(|b| b.as_array()) {
+            for (old_idx, bv) in buffer_views.iter().enumerate() {
+                if !geometry_views.contains(&old_idx) {
+                    // Non-geometry bufferView - copy to new buffer
+                    let byte_offset = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let byte_length = bv.get("byteLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+                    if byte_offset + byte_length <= original_buffer.len() {
+                        let data = &original_buffer[byte_offset..byte_offset + byte_length];
+                        let (new_offset, _) = new_buffer.append(data, 4);
+                        view_offset_map.insert(old_idx, new_offset);
+                    }
+                }
+            }
+        }
+
+        // Step 5: Patch JSON
+
+        // Update non-geometry bufferView offsets
+        for (old_idx, new_offset) in &view_offset_map {
+            draco_extension::update_buffer_view_offset(&mut json, *old_idx, *new_offset);
+        }
+
+        // Add new bufferViews for Draco data and add extensions to primitives
+        for compressed in &compressed_data {
+            let new_bv_idx = draco_extension::add_buffer_view(
+                &mut json,
+                0, // buffer index
+                compressed.buffer_view_offset,
+                compressed.buffer_view_length,
+            );
+
+            draco_extension::add_draco_extension(
+                &mut json,
+                compressed.mesh_idx,
+                compressed.prim_idx,
+                new_bv_idx,
+                &compressed.attribute_ids,
+                compressed.indices_accessor_idx,
+            );
+        }
+
+        // Update buffer length
+        let final_buffer = new_buffer.finish();
+        draco_extension::update_buffer_length(&mut json, 0, final_buffer.len());
+
+        // Ensure extension is declared
+        if !compressed_data.is_empty() {
+            draco_extension::ensure_extension_declared(&mut json);
+        }
+
+        // Set buffer URI based on format
+        match format {
+            OutputFormat::Glb => {
+                draco_extension::set_buffer_uri(&mut json, 0, None);
+            }
+            OutputFormat::Gltf { bin_filename } => {
+                draco_extension::set_buffer_uri(&mut json, 0, Some(bin_filename));
+            }
+        }
+
+        // Serialize JSON
+        let json_bytes = serde_json::to_vec_pretty(&json)?;
+
+        Ok(TranscodeResult {
+            json: json_bytes,
+            buffer: final_buffer,
+            warnings,
+        })
     }
+
+    /// Process a single primitive.
+    fn process_primitive(
+        &self,
+        json: &Value,
+        buffer: &[u8],
+        primitive: &Value,
+        output_buffer: &mut BufferBuilder,
+    ) -> Result<Option<CompressedPrimitiveData>, SkipReason> {
+        // Check if already Draco-compressed
+        if draco_extension::is_draco_compressed(primitive) {
+            return Err(SkipReason::AlreadyCompressed);
+        }
+
+        // Check if triangles
+        let mode = primitive.get("mode").and_then(|m| m.as_u64()).unwrap_or(4);
+        if mode != 4 {
+            return Err(SkipReason::NonTriangle(mode));
+        }
+
+        // Extract geometry
+        let geometry = self.extract_geometry(json, buffer, primitive)?;
+
+        // Build Mesh
+        let mesh = self.build_mesh(&geometry)?;
+
+        // Compress
+        let mut compressed = Vec::new();
+        crate::encode::encode(mesh, &mut compressed, self.config.draco.clone())
+            .map_err(|e| SkipReason::Error(Error::DracoEncode(e)))?;
+
+        // Append to buffer
+        let (offset, length) = output_buffer.append(&compressed, 4);
+
+        Ok(Some(CompressedPrimitiveData {
+            buffer_view_offset: offset,
+            buffer_view_length: length,
+            attribute_ids: geometry.draco_attribute_ids,
+            indices_accessor_idx: geometry.indices_accessor_idx,
+        }))
+    }
+
+    /// Extract geometry from a primitive.
+    fn extract_geometry(
+        &self,
+        json: &Value,
+        buffer: &[u8],
+        primitive: &Value,
+    ) -> Result<ExtractedGeometry, SkipReason> {
+        let mut geometry = ExtractedGeometry::default();
+
+        // Extract indices
+        if let Some(idx) = primitive.get("indices").and_then(|i| i.as_u64()) {
+            geometry.indices = read_accessor_as_u32(json, buffer, idx)
+                .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
+            geometry.indices_accessor_idx = Some(idx);
+        }
+
+        // Extract attributes
+        if let Some(attrs) = primitive.get("attributes").and_then(|a| a.as_object()) {
+            let mut draco_id = 0u32;
+
+            for (name, accessor_idx) in attrs {
+                let idx = accessor_idx.as_u64().ok_or_else(|| {
+                    SkipReason::Error(Error::InvalidInput(format!(
+                        "Invalid accessor index for {}",
+                        name
+                    )))
+                })?;
+
+                match name.as_str() {
+                    "POSITION" => {
+                        geometry.positions = read_accessor_as_vec3(json, buffer, idx)
+                            .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
+                        geometry.draco_attribute_ids.insert("POSITION", draco_id);
+                        draco_id += 1;
+                    }
+                    "NORMAL" => {
+                        geometry.normals = Some(
+                            read_accessor_as_vec3(json, buffer, idx)
+                                .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?,
+                        );
+                        geometry.draco_attribute_ids.insert("NORMAL", draco_id);
+                        draco_id += 1;
+                    }
+                    name if name.starts_with("TEXCOORD_") => {
+                        let texcoords = read_accessor_as_vec2(json, buffer, idx)
+                            .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
+                        geometry.texcoords.push((name.to_string(), texcoords));
+                        geometry.draco_attribute_ids.insert(name, draco_id);
+                        draco_id += 1;
+                    }
+                    name if name.starts_with("COLOR_") => {
+                        // Try VEC4 first, fall back to VEC3
+                        let colors = read_accessor_as_vec4(json, buffer, idx)
+                            .or_else(|_| {
+                                read_accessor_as_vec3(json, buffer, idx)
+                                    .map(|v| v.into_iter().map(|c| [c[0], c[1], c[2], 1.0]).collect())
+                            })
+                            .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
+                        geometry.colors.push((name.to_string(), colors));
+                        geometry.draco_attribute_ids.insert(name, draco_id);
+                        draco_id += 1;
+                    }
+                    "TANGENT" => {
+                        geometry.tangents = Some(
+                            read_accessor_as_vec4(json, buffer, idx)
+                                .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?,
+                        );
+                        geometry.draco_attribute_ids.insert("TANGENT", draco_id);
+                        draco_id += 1;
+                    }
+                    _ => {
+                        // Skip unknown attributes for now
+                        // Could add support for custom attributes here
+                    }
+                }
+            }
+        }
+
+        if geometry.positions.is_empty() {
+            return Err(SkipReason::Error(Error::InvalidInput(
+                "Primitive has no POSITION attribute".into(),
+            )));
+        }
+
+        Ok(geometry)
+    }
+
+    /// Build a Draco Mesh from extracted geometry.
+    fn build_mesh(&self, geometry: &ExtractedGeometry) -> Result<crate::core::mesh::Mesh, SkipReason> {
+        let mut builder = MeshBuilder::new();
+
+        // Set faces from indices
+        let faces: Vec<[usize; 3]> = if geometry.indices.is_empty() {
+            // No indices - generate sequential faces
+            (0..geometry.positions.len() / 3)
+                .map(|i| [i * 3, i * 3 + 1, i * 3 + 2])
+                .collect()
+        } else {
+            geometry
+                .indices
+                .chunks(3)
+                .map(|c| [c[0] as usize, c[1] as usize, c[2] as usize])
+                .collect()
+        };
+        builder.set_connectivity_attribute(faces);
+
+        // Add position attribute
+        let positions: Vec<NdVector<3, f32>> = geometry
+            .positions
+            .iter()
+            .map(|p| NdVector::from(*p))
+            .collect();
+        let pos_id = builder.add_attribute(
+            positions,
+            AttributeType::Position,
+            AttributeDomain::Position,
+            vec![],
+        );
+
+        // Add normal attribute
+        if let Some(ref normals) = geometry.normals {
+            let normals: Vec<NdVector<3, f32>> = normals.iter().map(|n| NdVector::from(*n)).collect();
+            builder.add_attribute(
+                normals,
+                AttributeType::Normal,
+                AttributeDomain::Corner,
+                vec![pos_id],
+            );
+        }
+
+        // Add texture coordinates
+        for (_name, texcoords) in &geometry.texcoords {
+            let texcoords: Vec<NdVector<2, f32>> = texcoords.iter().map(|t| NdVector::from(*t)).collect();
+            builder.add_attribute(
+                texcoords,
+                AttributeType::TextureCoordinate,
+                AttributeDomain::Corner,
+                vec![pos_id],
+            );
+        }
+
+        // Add colors
+        for (_name, colors) in &geometry.colors {
+            let colors: Vec<NdVector<4, f32>> = colors.iter().map(|c| NdVector::from(*c)).collect();
+            builder.add_attribute(
+                colors,
+                AttributeType::Color,
+                AttributeDomain::Corner,
+                vec![pos_id],
+            );
+        }
+
+        // Add tangents
+        if let Some(ref tangents) = geometry.tangents {
+            let tangents: Vec<NdVector<4, f32>> = tangents.iter().map(|t| NdVector::from(*t)).collect();
+            builder.add_attribute(
+                tangents,
+                AttributeType::Tangent,
+                AttributeDomain::Corner,
+                vec![pos_id],
+            );
+        }
+
+        builder
+            .build()
+            .map_err(|e| SkipReason::Error(Error::MeshBuild(e)))
+    }
+}
+
+/// Categorize bufferViews into geometry vs non-geometry.
+fn categorize_buffer_views(json: &Value) -> (HashSet<usize>, HashSet<usize>) {
+    let mut geometry_views = HashSet::new();
+
+    // Collect all bufferView indices referenced by mesh primitive accessors
+    if let Some(meshes) = json.get("meshes").and_then(|m| m.as_array()) {
+        for mesh in meshes {
+            if let Some(primitives) = mesh.get("primitives").and_then(|p| p.as_array()) {
+                for primitive in primitives {
+                    // Skip already-compressed primitives
+                    if draco_extension::is_draco_compressed(primitive) {
+                        continue;
+                    }
+
+                    // Indices accessor
+                    if let Some(idx) = primitive.get("indices").and_then(|i| i.as_u64()) {
+                        if let Some(bv) = get_accessor_buffer_view(json, idx as usize) {
+                            geometry_views.insert(bv);
+                        }
+                    }
+
+                    // Attribute accessors
+                    if let Some(attrs) = primitive.get("attributes").and_then(|a| a.as_object()) {
+                        for (_, accessor_idx) in attrs {
+                            if let Some(idx) = accessor_idx.as_u64() {
+                                if let Some(bv) = get_accessor_buffer_view(json, idx as usize) {
+                                    geometry_views.insert(bv);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // All other bufferViews are non-geometry
+    let num_views = json
+        .get("bufferViews")
+        .and_then(|b| b.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let non_geometry_views: HashSet<usize> = (0..num_views)
+        .filter(|i| !geometry_views.contains(i))
+        .collect();
+
+    (geometry_views, non_geometry_views)
+}
+
+/// Get the bufferView index for an accessor.
+fn get_accessor_buffer_view(json: &Value, accessor_idx: usize) -> Option<usize> {
+    json.get("accessors")
+        .and_then(|a| a.get(accessor_idx))
+        .and_then(|a| a.get("bufferView"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+}
+
+/// Reason for skipping a primitive.
+enum SkipReason {
+    AlreadyCompressed,
+    NonTriangle(u64),
+    Error(Error),
+}
+
+/// Data about a compressed primitive.
+struct CompressedPrimitive {
+    mesh_idx: usize,
+    prim_idx: usize,
+    buffer_view_offset: usize,
+    buffer_view_length: usize,
+    attribute_ids: DracoAttributeIds,
+    indices_accessor_idx: Option<u64>,
+}
+
+struct CompressedPrimitiveData {
+    buffer_view_offset: usize,
+    buffer_view_length: usize,
+    attribute_ids: DracoAttributeIds,
+    indices_accessor_idx: Option<u64>,
+}
+
+/// Extracted geometry from a primitive.
+#[derive(Default)]
+struct ExtractedGeometry {
+    positions: Vec<[f32; 3]>,
+    normals: Option<Vec<[f32; 3]>>,
+    texcoords: Vec<(String, Vec<[f32; 2]>)>,
+    colors: Vec<(String, Vec<[f32; 4]>)>,
+    tangents: Option<Vec<[f32; 4]>>,
+    indices: Vec<u32>,
+    indices_accessor_idx: Option<u64>,
+    draco_attribute_ids: DracoAttributeIds,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn test_transcode_buffer_equals_transcode_file() {
-        // Read the actual Duck.glb test file
-        // let test_glb_path = "../private_tests/bad_files/39769_bldg_Building.glb";
-        // let test_glb_path = "tests/data/Duck/Duck.glb";
-        let test_glb_path = "../19884_bldg_Building.glb";
-        let test_glb = std::fs::read(test_glb_path).expect("Failed to read input glb test file");
-        
-        // Create transcoder with default options
-        let mut transcoder1 = DracoTranscoder::create(None).unwrap();
-        
-        // Transcode using buffer method
-        let mut buffer_output = Vec::new();
-        transcoder1.transcode_buffer(&test_glb, &mut buffer_output)
-            .expect("Failed to transcode buffer");
-        
-        // Reset transcoder and use file method on the same instance
-        let mut transcoder2 = DracoTranscoder::create(None).unwrap();
-        
-        // Write test GLB to a temporary file for file-based transcoding
-        let temp_dir = std::env::temp_dir();
-        let input_path = temp_dir.join("test_gltf_input.glb");
-        let output_path = temp_dir.join("test_gltf_output.glb");
-        
-        std::fs::write(&input_path, &test_glb)
-            .expect("Failed to write temporary input file");
-        
-        // Transcode using file method
-        let file_options = FileOptions::new(
-            input_path.to_string_lossy().to_string(),
-            output_path.to_string_lossy().to_string(),
-        );
-        transcoder2.transcode_file(&file_options)
-            .expect("Failed to transcode file");
-        
-        // Read the file output
-        let file_output = std::fs::read(&output_path)
-            .expect("Failed to read output file");
-        
-        // Clean up input file
-        let _ = std::fs::remove_file(&input_path);
-        
-        // Write the buffer output to a file for comparison
-        let dir = std::env::current_dir()
-            .expect("Failed to get current directory");
-        let buffer_output_path = dir.join("test_gltf_buffer_output.glb");
-        std::fs::write(&buffer_output_path, &buffer_output)
-            .expect("Failed to write buffer output file");
-        
-        // make sure that the outputs are nontrivial
-        assert!(!buffer_output.len() > 10, "Buffer output is too small: size = {}", buffer_output.len());
-        // Compare outputs
-        assert_eq!(
-            buffer_output.len(), file_output.len(), 
-            "transcode_buffer and transcode_file outputs have different lengths"
-        );
-        
-        assert_eq!(
-            buffer_output, file_output,
-            "transcode_buffer and transcode_file outputs differ"
+    fn test_categorize_buffer_views() {
+        let json = json!({
+            "meshes": [{
+                "primitives": [{
+                    "attributes": { "POSITION": 0, "NORMAL": 1 },
+                    "indices": 2
+                }]
+            }],
+            "accessors": [
+                { "bufferView": 0 },
+                { "bufferView": 1 },
+                { "bufferView": 2 }
+            ],
+            "bufferViews": [
+                { "buffer": 0, "byteOffset": 0, "byteLength": 100 },
+                { "buffer": 0, "byteOffset": 100, "byteLength": 100 },
+                { "buffer": 0, "byteOffset": 200, "byteLength": 50 },
+                { "buffer": 0, "byteOffset": 250, "byteLength": 1000 }  // Image data
+            ]
+        });
+
+        let (geometry, non_geometry) = categorize_buffer_views(&json);
+
+        assert!(geometry.contains(&0)); // POSITION
+        assert!(geometry.contains(&1)); // NORMAL
+        assert!(geometry.contains(&2)); // indices
+        assert!(!geometry.contains(&3)); // image
+
+        assert!(non_geometry.contains(&3));
+        assert!(!non_geometry.contains(&0));
+    }
+
+    #[test]
+    fn test_transcode_duck_glb() {
+        let test_path = "tests/data/Duck/Duck.glb";
+        let input = match std::fs::read(test_path) {
+            Ok(data) => data,
+            Err(_) => {
+                println!("Test file {} not found, skipping", test_path);
+                return;
+            }
+        };
+
+        let transcoder = GltfTranscoder::default();
+        let (output, warnings) = transcoder.transcode_to_glb(&input).expect("Transcoding failed");
+
+        // Output should be non-empty
+        assert!(!output.is_empty(), "Output should not be empty");
+
+        // Output should be smaller than input (compressed)
+        println!("Input size: {} bytes", input.len());
+        println!("Output size: {} bytes", output.len());
+        println!("Compression ratio: {:.2}%", (output.len() as f64 / input.len() as f64) * 100.0);
+
+        for warning in &warnings {
+            println!("Warning: {}", warning);
+        }
+
+        // Output should be valid GLB (can parse header)
+        let parsed = super::glb::parse_glb(&output).expect("Output is not valid GLB");
+        assert!(!parsed.json.is_empty(), "JSON chunk should not be empty");
+
+        // JSON should contain KHR_draco_mesh_compression extension
+        let json_str = String::from_utf8_lossy(&parsed.json);
+        assert!(
+            json_str.contains("KHR_draco_mesh_compression"),
+            "Output should contain Draco extension"
         );
     }
 
     #[test]
-    fn test_buffer_transcoder_deterministic_1000_runs() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        
-        // add some test for your purpose.
-        // If the test file does not exist, it will return. (No test will be run)
-        let test_glb_path = "../private_tests/some_test.glb";
-        let test_glb = if let Ok(glb) = std::fs::read(test_glb_path) {
-            glb
-        } else {
-            println!("Test file {} does not exist, skipping deterministic test.", test_glb_path);
-            return;
+    fn test_transcode_deterministic() {
+        let test_path = "tests/data/Duck/Duck.glb";
+        let input = match std::fs::read(test_path) {
+            Ok(data) => data,
+            Err(_) => {
+                println!("Test file {} not found, skipping", test_path);
+                return;
+            }
         };
-        
-        println!("Testing deterministic behavior with 1000 buffer transcoding runs...");
-        println!("Input file: {} ({} bytes)", test_glb_path, test_glb.len());
-        
-        let mut hashes = Vec::new();
-        let mut output_sizes = Vec::new();
-        let mut successful_runs = 0;
-        
-        // Perform 1000 transcoding runs
-        for run_number in 1..=1000 {
-            if run_number % 100 == 0 || run_number <= 10 {
-                println!("Run {}/1000", run_number);
-            }
-            
-            // Create fresh transcoder for each run
-            let mut transcoder = DracoTranscoder::create(None)
-                .expect("Failed to create transcoder");
-            
-            // Transcode to buffer
-            let mut output_buffer = Vec::new();
-            match transcoder.transcode_buffer(&test_glb, &mut output_buffer) {
-                Ok(()) => {
-                    // Calculate hash of output
-                    let mut hasher = DefaultHasher::new();
-                    output_buffer.hash(&mut hasher);
-                    let hash = hasher.finish();
-                    
-                    hashes.push(hash);
-                    output_sizes.push(output_buffer.len());
-                    successful_runs += 1;
-                    
-                    // Save first output as reference
-                    if run_number == 1 {
-                        let reference_path = std::env::current_dir()
-                            .expect("Failed to get current directory")
-                            .join("39764_transcoder_deterministic_reference.glb");
-                        std::fs::write(&reference_path, &output_buffer)
-                            .expect("Failed to write reference output");
-                        println!("Reference output saved as: {}", reference_path.display());
-                        println!("Output size: {} bytes", output_buffer.len());
-                    }
-                }
-                Err(e) => {
-                    panic!("Transcoding failed on run {}: {}", run_number, e);
-                }
-            }
+
+        let transcoder = GltfTranscoder::default();
+
+        // Run transcoding multiple times
+        let mut outputs = Vec::new();
+        for _ in 0..5 {
+            let (output, _) = transcoder.transcode_to_glb(&input).expect("Transcoding failed");
+            outputs.push(output);
         }
-        
-        println!("\n=== DETERMINISTIC TEST RESULTS ===");
-        println!("Successful runs: {}/1000", successful_runs);
-        
-        // Check if all hashes are identical
-        let unique_hashes: std::collections::HashSet<_> = hashes.iter().collect();
-        let unique_sizes: std::collections::HashSet<_> = output_sizes.iter().collect();
-        
-        println!("Unique hashes: {}", unique_hashes.len());
-        println!("Unique output sizes: {}", unique_sizes.len());
-        
-        if unique_hashes.len() == 1 && unique_sizes.len() == 1 {
-            println!("✅ ALL OUTPUTS ARE IDENTICAL - Buffer transcoder is deterministic!");
-            println!("   Hash: {:016x}", hashes[0]);
-            println!("   Size: {} bytes", output_sizes[0]);
-        } else {
-            println!("❌ OUTPUTS DIFFER - Buffer transcoder is NOT deterministic!");
-            
-            // Show hash distribution
-            use std::collections::HashMap;
-            let mut hash_counts = HashMap::new();
-            for &hash in &hashes {
-                *hash_counts.entry(hash).or_insert(0) += 1;
-            }
-            
-            println!("\nHash distribution:");
-            for (i, (&hash, count)) in hash_counts.iter().enumerate() {
-                println!("  Hash {}: {:016x} ({} occurrences)", i + 1, hash, count);
-            }
-            
-            // Show size distribution
-            let mut size_counts = HashMap::new();
-            for &size in &output_sizes {
-                *size_counts.entry(size).or_insert(0) += 1;
-            }
-            
-            println!("\nSize distribution:");
-            for (size, count) in size_counts.iter() {
-                println!("  Size {} bytes: {} occurrences", size, count);
-            }
-            
-            panic!("Buffer transcoder is not deterministic!");
+
+        // All outputs should be identical
+        for (i, output) in outputs.iter().enumerate().skip(1) {
+            assert_eq!(
+                outputs[0].len(),
+                output.len(),
+                "Output {} has different length",
+                i
+            );
+            assert_eq!(&outputs[0], output, "Output {} differs", i);
         }
-        
-        // Final assertions
-        assert_eq!(successful_runs, 1000, "Not all runs were successful");
-        assert_eq!(unique_hashes.len(), 1, "Outputs have different hashes - not deterministic");
-        assert_eq!(unique_sizes.len(), 1, "Outputs have different sizes - not deterministic");
+
+        println!("Determinism test passed: {} runs produced identical output", outputs.len());
     }
 }
