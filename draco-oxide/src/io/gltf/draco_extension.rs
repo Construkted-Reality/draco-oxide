@@ -171,20 +171,41 @@ pub fn update_buffer_view_offset(json: &mut Value, buffer_view_idx: usize, new_o
     }
 }
 
-/// Clear a geometry bufferView by setting byteOffset=0 and byteLength=0.
-/// This makes it safe to have stale bufferViews that are no longer referenced.
-pub fn clear_buffer_view(json: &mut Value, buffer_view_idx: usize) {
-    if let Some(bv) = json
-        .get_mut("bufferViews")
-        .and_then(|b| b.get_mut(buffer_view_idx))
-        .and_then(|b| b.as_object_mut())
-    {
-        bv.insert("byteOffset".to_string(), json!(0));
-        bv.insert("byteLength".to_string(), json!(0));
-        // Remove target as it's no longer valid
-        bv.remove("target");
-        bv.remove("byteStride");
+/// Remove geometry bufferViews and remap all bufferView references.
+/// Returns a mapping from old indices to new indices.
+pub fn remove_buffer_views(
+    json: &mut Value,
+    views_to_remove: &std::collections::HashSet<usize>,
+) -> std::collections::HashMap<usize, usize> {
+    let mut old_to_new: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+
+    if let Some(buffer_views) = json.get_mut("bufferViews").and_then(|b| b.as_array_mut()) {
+        // Build the new array and mapping
+        let mut new_views = Vec::new();
+        for (old_idx, bv) in buffer_views.iter().enumerate() {
+            if !views_to_remove.contains(&old_idx) {
+                old_to_new.insert(old_idx, new_views.len());
+                new_views.push(bv.clone());
+            }
+        }
+        *buffer_views = new_views;
     }
+
+    // Remap bufferView references in images
+    if let Some(images) = json.get_mut("images").and_then(|i| i.as_array_mut()) {
+        for image in images.iter_mut() {
+            if let Some(bv_idx) = image.get("bufferView").and_then(|v| v.as_u64()) {
+                if let Some(&new_idx) = old_to_new.get(&(bv_idx as usize)) {
+                    image
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("bufferView".to_string(), json!(new_idx));
+                }
+            }
+        }
+    }
+
+    old_to_new
 }
 
 #[cfg(test)]

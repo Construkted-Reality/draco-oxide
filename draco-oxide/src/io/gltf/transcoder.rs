@@ -259,15 +259,13 @@ impl GltfTranscoder {
 
         // Step 5: Patch JSON
 
-        // Update non-geometry bufferView offsets
+        // Update non-geometry bufferView offsets (before removing views, since indices will change)
         for (old_idx, new_offset) in &view_offset_map {
             draco_extension::update_buffer_view_offset(&mut json, *old_idx, *new_offset);
         }
 
-        // Clear geometry bufferViews (they're no longer used, data is in Draco extension)
-        for geometry_view_idx in &geometry_views {
-            draco_extension::clear_buffer_view(&mut json, *geometry_view_idx);
-        }
+        // Remove geometry bufferViews and remap all references
+        let _old_to_new = draco_extension::remove_buffer_views(&mut json, &geometry_views);
 
         // Add new bufferViews for Draco data and add extensions to primitives
         for compressed in &compressed_data {
@@ -337,10 +335,10 @@ impl GltfTranscoder {
         }
 
         // Extract geometry
-        let geometry = self.extract_geometry(json, buffer, primitive)?;
+        let mut geometry = self.extract_geometry(json, buffer, primitive)?;
 
-        // Build Mesh
-        let mesh = self.build_mesh(&geometry)?;
+        // Build Mesh (also assigns draco_attribute_ids in correct order)
+        let mesh = self.build_mesh(&mut geometry)?;
 
         // Compress
         let mut compressed = Vec::new();
@@ -374,10 +372,8 @@ impl GltfTranscoder {
             geometry.indices_accessor_idx = Some(idx);
         }
 
-        // Extract attributes
+        // Extract attributes (draco_attribute_ids will be assigned in build_mesh)
         if let Some(attrs) = primitive.get("attributes").and_then(|a| a.as_object()) {
-            let mut draco_id = 0u32;
-
             for (name, accessor_idx) in attrs {
                 let idx = accessor_idx.as_u64().ok_or_else(|| {
                     SkipReason::Error(Error::InvalidInput(format!(
@@ -390,23 +386,17 @@ impl GltfTranscoder {
                     "POSITION" => {
                         geometry.positions = read_accessor_as_vec3(json, buffer, idx)
                             .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
-                        geometry.draco_attribute_ids.insert("POSITION", draco_id);
-                        draco_id += 1;
                     }
                     "NORMAL" => {
                         geometry.normals = Some(
                             read_accessor_as_vec3(json, buffer, idx)
                                 .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?,
                         );
-                        geometry.draco_attribute_ids.insert("NORMAL", draco_id);
-                        draco_id += 1;
                     }
                     name if name.starts_with("TEXCOORD_") => {
                         let texcoords = read_accessor_as_vec2(json, buffer, idx)
                             .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
                         geometry.texcoords.push((name.to_string(), texcoords));
-                        geometry.draco_attribute_ids.insert(name, draco_id);
-                        draco_id += 1;
                     }
                     name if name.starts_with("COLOR_") => {
                         // Try VEC4 first, fall back to VEC3
@@ -418,16 +408,12 @@ impl GltfTranscoder {
                             })
                             .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
                         geometry.colors.push((name.to_string(), colors));
-                        geometry.draco_attribute_ids.insert(name, draco_id);
-                        draco_id += 1;
                     }
                     "TANGENT" => {
                         geometry.tangents = Some(
                             read_accessor_as_vec4(json, buffer, idx)
                                 .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?,
                         );
-                        geometry.draco_attribute_ids.insert("TANGENT", draco_id);
-                        draco_id += 1;
                     }
                     _ => {
                         // Skip unknown attributes for now
@@ -447,9 +433,10 @@ impl GltfTranscoder {
     }
 
     /// Build a Draco Mesh from extracted geometry.
+    /// Also populates the draco_attribute_ids based on the actual order attributes are added.
     fn build_mesh(
         &self,
-        geometry: &ExtractedGeometry,
+        geometry: &mut ExtractedGeometry,
     ) -> Result<crate::core::mesh::Mesh, SkipReason> {
         let mut builder = MeshBuilder::new();
 
@@ -468,7 +455,11 @@ impl GltfTranscoder {
         };
         builder.set_connectivity_attribute(faces);
 
-        // Add position attribute
+        // Clear and rebuild draco_attribute_ids in the correct order
+        geometry.draco_attribute_ids = DracoAttributeIds::new();
+        let mut draco_id = 0u32;
+
+        // Add position attribute (always first, gets ID 0)
         let positions: Vec<NdVector<3, f32>> = geometry
             .positions
             .iter()
@@ -480,21 +471,30 @@ impl GltfTranscoder {
             AttributeDomain::Position,
             vec![],
         );
+        geometry.draco_attribute_ids.insert("POSITION", draco_id);
+        draco_id += 1;
 
         // Add normal attribute
-        if let Some(ref normals) = geometry.normals {
-            let normals: Vec<NdVector<3, f32>> =
-                normals.iter().map(|n| NdVector::from(*n)).collect();
+        if geometry.normals.is_some() {
+            let normals: Vec<NdVector<3, f32>> = geometry
+                .normals
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|n| NdVector::from(*n))
+                .collect();
             builder.add_attribute(
                 normals,
                 AttributeType::Normal,
                 AttributeDomain::Corner,
                 vec![pos_id],
             );
+            geometry.draco_attribute_ids.insert("NORMAL", draco_id);
+            draco_id += 1;
         }
 
         // Add texture coordinates
-        for (_name, texcoords) in &geometry.texcoords {
+        for (name, texcoords) in &geometry.texcoords {
             let texcoords: Vec<NdVector<2, f32>> =
                 texcoords.iter().map(|t| NdVector::from(*t)).collect();
             builder.add_attribute(
@@ -503,10 +503,12 @@ impl GltfTranscoder {
                 AttributeDomain::Corner,
                 vec![pos_id],
             );
+            geometry.draco_attribute_ids.insert(name, draco_id);
+            draco_id += 1;
         }
 
         // Add colors
-        for (_name, colors) in &geometry.colors {
+        for (name, colors) in &geometry.colors {
             let colors: Vec<NdVector<4, f32>> = colors.iter().map(|c| NdVector::from(*c)).collect();
             builder.add_attribute(
                 colors,
@@ -514,18 +516,26 @@ impl GltfTranscoder {
                 AttributeDomain::Corner,
                 vec![pos_id],
             );
+            geometry.draco_attribute_ids.insert(name, draco_id);
+            draco_id += 1;
         }
 
         // Add tangents
-        if let Some(ref tangents) = geometry.tangents {
-            let tangents: Vec<NdVector<4, f32>> =
-                tangents.iter().map(|t| NdVector::from(*t)).collect();
+        if geometry.tangents.is_some() {
+            let tangents: Vec<NdVector<4, f32>> = geometry
+                .tangents
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|t| NdVector::from(*t))
+                .collect();
             builder.add_attribute(
                 tangents,
                 AttributeType::Tangent,
                 AttributeDomain::Corner,
                 vec![pos_id],
             );
+            geometry.draco_attribute_ids.insert("TANGENT", draco_id);
         }
 
         builder
