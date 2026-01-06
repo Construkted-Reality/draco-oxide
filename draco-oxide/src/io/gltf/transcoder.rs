@@ -15,7 +15,8 @@ use std::path::Path;
 use super::buffer_builder::BufferBuilder;
 use super::draco_extension::{self, DracoAttributeIds};
 use super::geometry_extractor::{
-    self, read_accessor_as_u32, read_accessor_as_vec2, read_accessor_as_vec3, read_accessor_as_vec4,
+    self, read_accessor_as_scalar_f32, read_accessor_as_u32, read_accessor_as_vec2,
+    read_accessor_as_vec3, read_accessor_as_vec4,
 };
 use super::glb;
 
@@ -208,6 +209,7 @@ impl GltfTranscoder {
                                     buffer_view_length: compressed.buffer_view_length,
                                     attribute_ids: compressed.attribute_ids,
                                     indices_accessor_idx: compressed.indices_accessor_idx,
+                                    feature_id_accessor_indices: compressed.feature_id_accessor_indices,
                                 });
                             }
                             Ok(None) => {
@@ -239,6 +241,9 @@ impl GltfTranscoder {
         // Step 4: Copy non-geometry bufferViews to new buffer
         let mut view_offset_map: HashMap<usize, usize> = HashMap::new();
 
+        // Determine which bufferViews need 8-byte alignment (INT64/FLOAT64 metadata)
+        let views_needing_8byte_align = get_8byte_aligned_buffer_views(&json);
+
         if let Some(buffer_views) = json.get("bufferViews").and_then(|b| b.as_array()) {
             for (old_idx, bv) in buffer_views.iter().enumerate() {
                 if !geometry_views.contains(&old_idx) {
@@ -250,7 +255,13 @@ impl GltfTranscoder {
 
                     if byte_offset + byte_length <= original_buffer.len() {
                         let data = &original_buffer[byte_offset..byte_offset + byte_length];
-                        let (new_offset, _) = new_buffer.append(data, 4);
+                        // Use 8-byte alignment for INT64/FLOAT64 data, 4-byte otherwise
+                        let alignment = if views_needing_8byte_align.contains(&old_idx) {
+                            8
+                        } else {
+                            4
+                        };
+                        let (new_offset, _) = new_buffer.append(data, alignment);
                         view_offset_map.insert(old_idx, new_offset);
                     }
                 }
@@ -263,6 +274,10 @@ impl GltfTranscoder {
         for (old_idx, new_offset) in &view_offset_map {
             draco_extension::update_buffer_view_offset(&mut json, *old_idx, *new_offset);
         }
+
+        // Clear bufferView/byteOffset for ALL accessors referencing geometry bufferViews
+        // (including orphan accessors not used by any primitive)
+        draco_extension::clear_accessors_referencing_views(&mut json, &geometry_views);
 
         // Remove geometry bufferViews and remap all references
         let _old_to_new = draco_extension::remove_buffer_views(&mut json, &geometry_views);
@@ -284,10 +299,22 @@ impl GltfTranscoder {
                 &compressed.attribute_ids,
                 compressed.indices_accessor_idx,
             );
+
+            // Update feature ID accessor componentType from FLOAT to UNSIGNED_INT
+            // since we encode feature IDs as u32 for Draco compatibility
+            for &accessor_idx in &compressed.feature_id_accessor_indices {
+                draco_extension::update_accessor_component_type(
+                    &mut json,
+                    accessor_idx,
+                    draco_extension::COMPONENT_TYPE_UNSIGNED_INT,
+                );
+            }
         }
 
-        // Update buffer length
-        let final_buffer = new_buffer.finish();
+        // Update buffer length (pad to 8-byte alignment for INT64/FLOAT64 typed array compatibility)
+        let mut final_buffer = new_buffer.finish();
+        let padding = (8 - (final_buffer.len() % 8)) % 8;
+        final_buffer.extend(std::iter::repeat(0u8).take(padding));
         draco_extension::update_buffer_length(&mut json, 0, final_buffer.len());
 
         // Ensure extension is declared
@@ -353,6 +380,11 @@ impl GltfTranscoder {
             buffer_view_length: length,
             attribute_ids: geometry.draco_attribute_ids,
             indices_accessor_idx: geometry.indices_accessor_idx,
+            feature_id_accessor_indices: geometry
+                .feature_id_accessor_indices
+                .into_iter()
+                .map(|(_, idx)| idx)
+                .collect(),
         }))
     }
 
@@ -414,6 +446,15 @@ impl GltfTranscoder {
                             read_accessor_as_vec4(json, buffer, idx)
                                 .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?,
                         );
+                    }
+                    name if name.starts_with("_FEATURE_ID_") => {
+                        let feature_ids = read_accessor_as_scalar_f32(json, buffer, idx)
+                            .map_err(|e| SkipReason::Error(Error::GeometryExtraction(e)))?;
+                        geometry.feature_ids.push((name.to_string(), feature_ids));
+                        // Track accessor index so we can update componentType to U32 after encoding
+                        geometry
+                            .feature_id_accessor_indices
+                            .push((name.to_string(), idx as u64));
                     }
                     _ => {
                         // Skip unknown attributes for now
@@ -536,7 +577,29 @@ impl GltfTranscoder {
                 vec![pos_id],
             );
             geometry.draco_attribute_ids.insert("TANGENT", draco_id);
+            draco_id += 1;
         }
+
+        // Add feature IDs (from EXT_mesh_features)
+        // Encode as u32 for Draco compatibility (Draco GENERIC attributes work better with integers)
+        // The glTF accessor componentType will be updated to U32 after encoding
+        for (name, feature_ids) in &geometry.feature_ids {
+            let feature_ids: Vec<NdVector<1, u32>> = feature_ids
+                .iter()
+                .map(|&id| NdVector::from([id as u32]))
+                .collect();
+            builder.add_attribute(
+                feature_ids,
+                AttributeType::Custom,
+                AttributeDomain::Corner,
+                vec![pos_id],
+            );
+            geometry.draco_attribute_ids.insert(name, draco_id);
+            draco_id += 1;
+        }
+
+        // Silence unused variable warning
+        let _ = draco_id;
 
         builder
             .build()
@@ -603,6 +666,79 @@ fn get_accessor_buffer_view(json: &Value, accessor_idx: usize) -> Option<usize> 
         .map(|v| v as usize)
 }
 
+/// Get bufferView indices that require 8-byte alignment (INT64/FLOAT64 data).
+/// This checks EXT_structural_metadata property tables for properties with
+/// componentType INT64 or FLOAT64.
+fn get_8byte_aligned_buffer_views(json: &Value) -> HashSet<usize> {
+    let mut result = HashSet::new();
+
+    let ext = match json
+        .get("extensions")
+        .and_then(|e| e.get("EXT_structural_metadata"))
+    {
+        Some(ext) => ext,
+        None => return result,
+    };
+
+    // Get schema to find property component types
+    let schema_classes = ext
+        .get("schema")
+        .and_then(|s| s.get("classes"))
+        .and_then(|c| c.as_object());
+
+    let schema_classes = match schema_classes {
+        Some(c) => c,
+        None => return result,
+    };
+
+    // Get property tables
+    let tables = match ext.get("propertyTables").and_then(|t| t.as_array()) {
+        Some(t) => t,
+        None => return result,
+    };
+
+    for table in tables {
+        let class_name = match table.get("class").and_then(|c| c.as_str()) {
+            Some(c) => c,
+            None => continue,
+        };
+
+        let class_schema = match schema_classes.get(class_name) {
+            Some(c) => c,
+            None => continue,
+        };
+
+        let schema_props = match class_schema.get("properties").and_then(|p| p.as_object()) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let table_props = match table.get("properties").and_then(|p| p.as_object()) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        for (prop_name, prop_data) in table_props {
+            // Check if this property's componentType requires 8-byte alignment
+            let needs_8byte = schema_props
+                .get(prop_name)
+                .and_then(|s| s.get("componentType"))
+                .and_then(|c| c.as_str())
+                .map(|c| c == "INT64" || c == "FLOAT64")
+                .unwrap_or(false);
+
+            if needs_8byte {
+                // Add the "values" bufferView
+                if let Some(bv_idx) = prop_data.get("values").and_then(|v| v.as_u64()) {
+                    result.insert(bv_idx as usize);
+                }
+            }
+        }
+    }
+
+    result
+}
+
 /// Reason for skipping a primitive.
 enum SkipReason {
     AlreadyCompressed,
@@ -618,6 +754,8 @@ struct CompressedPrimitive {
     buffer_view_length: usize,
     attribute_ids: DracoAttributeIds,
     indices_accessor_idx: Option<u64>,
+    /// Feature ID accessor indices that need their componentType updated to U32
+    feature_id_accessor_indices: Vec<u64>,
 }
 
 struct CompressedPrimitiveData {
@@ -625,6 +763,8 @@ struct CompressedPrimitiveData {
     buffer_view_length: usize,
     attribute_ids: DracoAttributeIds,
     indices_accessor_idx: Option<u64>,
+    /// Feature ID accessor indices that need their componentType updated to U32
+    feature_id_accessor_indices: Vec<u64>,
 }
 
 /// Extracted geometry from a primitive.
@@ -635,6 +775,9 @@ struct ExtractedGeometry {
     texcoords: Vec<(String, Vec<[f32; 2]>)>,
     colors: Vec<(String, Vec<[f32; 4]>)>,
     tangents: Option<Vec<[f32; 4]>>,
+    feature_ids: Vec<(String, Vec<f32>)>,
+    /// Maps feature ID attribute name to its accessor index (for updating componentType after encoding)
+    feature_id_accessor_indices: Vec<(String, u64)>,
     indices: Vec<u32>,
     indices_accessor_idx: Option<u64>,
     draco_attribute_ids: DracoAttributeIds,

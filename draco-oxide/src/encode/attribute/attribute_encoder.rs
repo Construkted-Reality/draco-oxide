@@ -96,7 +96,7 @@ impl GroupConfig {
             AttributeType::Custom => Self {
                 range: vec![0..size],
                 prediction_scheme: prediction_scheme::Config {
-                    ty: prediction_scheme::PredictionSchemeType::MeshParallelogramPrediction,
+                    ty: prediction_scheme::PredictionSchemeType::DeltaPrediction,
                     ..prediction_scheme::Config::default()
                 },
                 prediction_transform: prediction_transform::Config {

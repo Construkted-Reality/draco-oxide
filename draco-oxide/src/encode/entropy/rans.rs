@@ -217,7 +217,7 @@ where
                 // when we find a symbol with zero frequency, we encode the flag (1-bit) and the
                 // 6-bit offset to the next symbol with non-zero frequency.
                 let mut offset = 0;
-                while offset < (1 << 6) {
+                while offset < (1 << 6) && i + offset + 1 < num_symbols {
                     let next_prob = distribution[i + offset + 1];
                     if next_prob > 0 {
                         i += offset;

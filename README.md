@@ -17,12 +17,12 @@
 | ------------------     | -----  | ------------------ |
 | Mesh Encoder           | ✅     | Performance optimization |
 | Mesh Decoder           | ❌     | ✅                  |
-| glTF Transcoder (basic)| ✅     | Animation and many more extensions  |
+| glb Transcoder (basic)| ✅     | Animation and many more extensions  |
 
 ### Encoder Highlights
 
 * Triangle‑mesh compression with configurable speed/ratio presets.
-* Basic glTF transcoder (`*.gltf` or `*.glb` → `*.glb` with mesh buffer compressed via [KHR_draco_mesh_compression extension](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_draco_mesh_compression)).
+* Basic glb transcoder (`*.glb` → `*.glb` with mesh buffer compressed via [KHR_draco_mesh_compression extension](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_draco_mesh_compression)).
 * Pure‑Rust implementation.
 * `no_std` + `alloc` compatible; builds to **WASM32**, **x86\_64**, **aarch64**, and more.
 
@@ -37,7 +37,7 @@ Planned for the **beta** milestone.
 ### Add to Your Project
 
 ```txt
-draco-oxide = "0.1.0-alpha.1"
+draco-oxide = "0.1.0-alpha.3"
 ```
 
 ### Example: Encode an obj file.

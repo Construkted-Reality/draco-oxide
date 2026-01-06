@@ -171,6 +171,26 @@ pub fn update_buffer_view_offset(json: &mut Value, buffer_view_idx: usize, new_o
     }
 }
 
+/// Clear bufferView and byteOffset for all accessors that reference any of the given bufferViews.
+/// This handles orphan accessors that aren't used by any primitive but still reference geometry bufferViews.
+pub fn clear_accessors_referencing_views(
+    json: &mut Value,
+    views_to_clear: &std::collections::HashSet<usize>,
+) {
+    if let Some(accessors) = json.get_mut("accessors").and_then(|a| a.as_array_mut()) {
+        for accessor in accessors.iter_mut() {
+            if let Some(bv_idx) = accessor.get("bufferView").and_then(|v| v.as_u64()) {
+                if views_to_clear.contains(&(bv_idx as usize)) {
+                    if let Some(obj) = accessor.as_object_mut() {
+                        obj.remove("bufferView");
+                        obj.remove("byteOffset");
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Remove geometry bufferViews and remap all bufferView references.
 /// Returns a mapping from old indices to new indices.
 pub fn remove_buffer_views(
@@ -205,7 +225,63 @@ pub fn remove_buffer_views(
         }
     }
 
+    // Remap bufferView references in EXT_structural_metadata property tables
+    if let Some(ext) = json
+        .get_mut("extensions")
+        .and_then(|e| e.get_mut("EXT_structural_metadata"))
+    {
+        if let Some(tables) = ext.get_mut("propertyTables").and_then(|t| t.as_array_mut()) {
+            for table in tables.iter_mut() {
+                if let Some(properties) = table.get_mut("properties").and_then(|p| p.as_object_mut())
+                {
+                    for (_, prop) in properties.iter_mut() {
+                        // Remap "values" bufferView reference
+                        if let Some(bv_idx) = prop.get("values").and_then(|v| v.as_u64()) {
+                            if let Some(&new_idx) = old_to_new.get(&(bv_idx as usize)) {
+                                prop.as_object_mut()
+                                    .unwrap()
+                                    .insert("values".to_string(), json!(new_idx));
+                            }
+                        }
+                        // Remap "stringOffsets" bufferView reference
+                        if let Some(bv_idx) = prop.get("stringOffsets").and_then(|v| v.as_u64()) {
+                            if let Some(&new_idx) = old_to_new.get(&(bv_idx as usize)) {
+                                prop.as_object_mut()
+                                    .unwrap()
+                                    .insert("stringOffsets".to_string(), json!(new_idx));
+                            }
+                        }
+                        // Remap "arrayOffsets" bufferView reference (for variable-length arrays)
+                        if let Some(bv_idx) = prop.get("arrayOffsets").and_then(|v| v.as_u64()) {
+                            if let Some(&new_idx) = old_to_new.get(&(bv_idx as usize)) {
+                                prop.as_object_mut()
+                                    .unwrap()
+                                    .insert("arrayOffsets".to_string(), json!(new_idx));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     old_to_new
+}
+
+/// glTF componentType values
+pub const COMPONENT_TYPE_UNSIGNED_INT: u64 = 5125;
+
+/// Update accessor componentType to UNSIGNED_INT (5125).
+/// This is needed for feature ID attributes that are encoded as u32 in Draco
+/// but originally declared as FLOAT in glTF.
+pub fn update_accessor_component_type(json: &mut Value, accessor_idx: u64, component_type: u64) {
+    if let Some(accessor) = json
+        .get_mut("accessors")
+        .and_then(|a| a.get_mut(accessor_idx as usize))
+        .and_then(|a| a.as_object_mut())
+    {
+        accessor.insert("componentType".to_string(), json!(component_type));
+    }
 }
 
 #[cfg(test)]

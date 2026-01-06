@@ -305,6 +305,33 @@ pub fn read_accessor_as_vec4(
     Ok(flat.chunks(4).map(|c| [c[0], c[1], c[2], c[3]]).collect())
 }
 
+pub fn read_accessor_as_scalar_f32(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<f32>, Error> {
+    let accessor = get_accessor_info(json, accessor_idx)?;
+    let buffer_view = get_buffer_view_info(json, accessor.buffer_view_idx)?;
+
+    if buffer_view.buffer_idx != 0 {
+        return Err(Error::BufferOutOfRange(buffer_view.buffer_idx));
+    }
+
+    let element_size = accessor.component_type.byte_size();
+    let stride = buffer_view.byte_stride.unwrap_or(element_size);
+    let base_offset = buffer_view.byte_offset + accessor.byte_offset;
+
+    let mut result = Vec::with_capacity(accessor.count);
+
+    for i in 0..accessor.count {
+        let offset = base_offset + i * stride;
+        let value = read_component_as_f32(buffer, offset, accessor.component_type)?;
+        result.push(value);
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
