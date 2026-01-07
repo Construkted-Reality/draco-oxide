@@ -1,5 +1,6 @@
+use crate::core::attribute::ComponentDataType;
 use crate::core::shared::DataValue;
-use crate::core::shared::Vector;
+use crate::core::shared::{AttributeValueIdx, Vector};
 use crate::prelude::Attribute;
 use crate::prelude::ByteWriter;
 use crate::prelude::NdVector;
@@ -15,8 +16,7 @@ pub struct ToBits<Data, const N: usize>
 where
     Data: Vector<N>,
 {
-    /// iterator over the attribute values.
-    /// this is not 'Vec<_>' because we want nicely consume the data.
+    /// The attribute to portabilize.
     att: Attribute,
 
     _marker: std::marker::PhantomData<Data>,
@@ -33,6 +33,7 @@ where
     {
         #[cfg(feature = "evaluation")]
         eval::write_json_pair("portabilization", "ToBits".into(), _writer);
+
         Self {
             att,
             _marker: std::marker::PhantomData,
@@ -43,9 +44,35 @@ where
 impl<Data, const N: usize> PortabilizationImpl<N> for ToBits<Data, N>
 where
     Data: Vector<N> + Portable,
+    Data::Component: DataValue,
     NdVector<N, i32>: Vector<N, Component = i32>,
 {
     fn portabilize(self) -> Attribute {
-        self.att
+        // Convert all values to i32 if it is not already i32.
+
+        if self.att.get_component_type() == ComponentDataType::I32 {
+            return self.att;
+        }
+
+        let mut out = Vec::with_capacity(self.att.num_unique_values());
+        for i in 0..self.att.num_unique_values() {
+            let i = AttributeValueIdx::from(i);
+            let val: Data = self.att.get_unique_val(i);
+            let mut converted = NdVector::<N, i32>::zero();
+            for j in 0..N {
+                *converted.get_mut(j) = val.get(j).to_i64() as i32;
+            }
+            out.push(converted);
+        }
+
+        let mut port_att = Attribute::from_without_removing_duplicates(
+            self.att.get_id(),
+            out,
+            self.att.get_attribute_type(),
+            self.att.get_domain(),
+            self.att.get_parents().clone(),
+        );
+        port_att.set_point_to_att_val_map(self.att.take_point_to_att_val_map());
+        port_att
     }
 }

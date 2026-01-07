@@ -209,7 +209,11 @@ impl GltfTranscoder {
                                     buffer_view_length: compressed.buffer_view_length,
                                     attribute_ids: compressed.attribute_ids,
                                     indices_accessor_idx: compressed.indices_accessor_idx,
-                                    feature_id_accessor_indices: compressed.feature_id_accessor_indices,
+                                    feature_id_accessor_indices: compressed
+                                        .feature_id_accessor_indices,
+                                    original_accessor_indices: compressed.original_accessor_indices,
+                                    vertex_count: compressed.vertex_count,
+                                    indices_count: compressed.indices_count,
                                 });
                             }
                             Ok(None) => {
@@ -232,6 +236,107 @@ impl GltfTranscoder {
                             Err(SkipReason::Error(e)) => {
                                 return Err(e);
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 3.5: Handle shared accessors
+        // When multiple primitives share the same accessor but have different Draco bufferViews,
+        // we need to duplicate the accessor so each primitive has its own.
+        let mut accessor_remappings: HashMap<(usize, usize), HashMap<u64, usize>> = HashMap::new();
+
+        // Build accessor usage map: accessor_idx -> list of (mesh_idx, prim_idx, count)
+        // For vertex attributes, count is vertex_count; for indices, count is indices_count
+        let mut accessor_usage: HashMap<u64, Vec<(usize, usize, usize)>> = HashMap::new();
+        for compressed in &compressed_data {
+            for &accessor_idx in compressed.original_accessor_indices.values() {
+                accessor_usage.entry(accessor_idx).or_default().push((
+                    compressed.mesh_idx,
+                    compressed.prim_idx,
+                    compressed.vertex_count,
+                ));
+            }
+            // Also track indices accessor if present
+            if let Some(idx) = compressed.indices_accessor_idx {
+                accessor_usage.entry(idx).or_default().push((
+                    compressed.mesh_idx,
+                    compressed.prim_idx,
+                    compressed.indices_count,
+                ));
+            }
+        }
+
+        // For shared accessors, duplicate for all primitives except the first
+        for (accessor_idx, users) in &accessor_usage {
+            if users.len() > 1 {
+                // This accessor is shared - duplicate for each primitive
+                for (i, &(mesh_idx, prim_idx, vertex_count)) in users.iter().enumerate() {
+                    let remapping = accessor_remappings.entry((mesh_idx, prim_idx)).or_default();
+
+                    if i == 0 {
+                        // First user keeps the original accessor, but we update its count
+                        if vertex_count > 0 {
+                            draco_extension::update_accessor_count(
+                                &mut json,
+                                *accessor_idx as usize,
+                                vertex_count,
+                            );
+                        }
+                        remapping.insert(*accessor_idx, *accessor_idx as usize);
+                    } else {
+                        // Other users get duplicated accessors
+                        let new_idx = draco_extension::duplicate_accessor(
+                            &mut json,
+                            *accessor_idx as usize,
+                            vertex_count,
+                        );
+                        remapping.insert(*accessor_idx, new_idx);
+                    }
+                }
+            } else if let Some(&(mesh_idx, prim_idx, vertex_count)) = users.first() {
+                // Single user - just update the count if needed
+                if vertex_count > 0 {
+                    draco_extension::update_accessor_count(
+                        &mut json,
+                        *accessor_idx as usize,
+                        vertex_count,
+                    );
+                }
+                let remapping = accessor_remappings.entry((mesh_idx, prim_idx)).or_default();
+                remapping.insert(*accessor_idx, *accessor_idx as usize);
+            }
+        }
+
+        // Update primitive attributes to use new accessor indices
+        for compressed in &compressed_data {
+            if let Some(remapping) =
+                accessor_remappings.get(&(compressed.mesh_idx, compressed.prim_idx))
+            {
+                for (attr_name, &original_idx) in &compressed.original_accessor_indices {
+                    if let Some(&new_idx) = remapping.get(&original_idx) {
+                        if new_idx != original_idx as usize {
+                            draco_extension::update_primitive_attribute(
+                                &mut json,
+                                compressed.mesh_idx,
+                                compressed.prim_idx,
+                                attr_name,
+                                new_idx,
+                            );
+                        }
+                    }
+                }
+                // Update indices accessor if remapped
+                if let Some(original_indices_idx) = compressed.indices_accessor_idx {
+                    if let Some(&new_idx) = remapping.get(&original_indices_idx) {
+                        if new_idx != original_indices_idx as usize {
+                            draco_extension::update_primitive_indices(
+                                &mut json,
+                                compressed.mesh_idx,
+                                compressed.prim_idx,
+                                new_idx,
+                            );
                         }
                     }
                 }
@@ -291,22 +396,38 @@ impl GltfTranscoder {
                 compressed.buffer_view_length,
             );
 
+            // Get remapped indices accessor index if available
+            let remapping = accessor_remappings.get(&(compressed.mesh_idx, compressed.prim_idx));
+            let indices_accessor_idx = compressed.indices_accessor_idx.map(|orig| {
+                remapping
+                    .and_then(|r| r.get(&orig))
+                    .copied()
+                    .map(|idx| idx as u64)
+                    .unwrap_or(orig)
+            });
+
             draco_extension::add_draco_extension(
                 &mut json,
                 compressed.mesh_idx,
                 compressed.prim_idx,
                 new_bv_idx,
                 &compressed.attribute_ids,
-                compressed.indices_accessor_idx,
+                indices_accessor_idx,
             );
 
-            // Update feature ID accessor componentType from FLOAT to UNSIGNED_INT
-            // since we encode feature IDs as u32 for Draco compatibility
-            for &accessor_idx in &compressed.feature_id_accessor_indices {
+            // Update feature ID accessor componentType from FLOAT to UNSIGNED_SHORT
+            // since we encode feature IDs as u16 for Draco compatibility
+            // Use remapped accessor indices if available
+            let remapping = accessor_remappings.get(&(compressed.mesh_idx, compressed.prim_idx));
+            for &original_accessor_idx in &compressed.feature_id_accessor_indices {
+                let actual_idx = remapping
+                    .and_then(|r| r.get(&original_accessor_idx))
+                    .copied()
+                    .unwrap_or(original_accessor_idx as usize);
                 draco_extension::update_accessor_component_type(
                     &mut json,
-                    accessor_idx,
-                    draco_extension::COMPONENT_TYPE_UNSIGNED_INT,
+                    actual_idx as u64,
+                    draco_extension::COMPONENT_TYPE_UNSIGNED_SHORT,
                 );
             }
         }
@@ -314,7 +435,7 @@ impl GltfTranscoder {
         // Update buffer length (pad to 8-byte alignment for INT64/FLOAT64 typed array compatibility)
         let mut final_buffer = new_buffer.finish();
         let padding = (8 - (final_buffer.len() % 8)) % 8;
-        final_buffer.extend(std::iter::repeat(0u8).take(padding));
+        final_buffer.extend(std::iter::repeat_n(0u8, padding));
         draco_extension::update_buffer_length(&mut json, 0, final_buffer.len());
 
         // Ensure extension is declared
@@ -364,6 +485,10 @@ impl GltfTranscoder {
         // Extract geometry
         let mut geometry = self.extract_geometry(json, buffer, primitive)?;
 
+        // Capture counts before building mesh
+        let vertex_count = geometry.positions.len();
+        let indices_count = geometry.indices.len();
+
         // Build Mesh (also assigns draco_attribute_ids in correct order)
         let mesh = self.build_mesh(&mut geometry)?;
 
@@ -385,6 +510,9 @@ impl GltfTranscoder {
                 .into_iter()
                 .map(|(_, idx)| idx)
                 .collect(),
+            original_accessor_indices: geometry.original_accessor_indices,
+            vertex_count,
+            indices_count,
         }))
     }
 
@@ -413,6 +541,11 @@ impl GltfTranscoder {
                         name
                     )))
                 })?;
+
+                // Track original accessor index for shared accessor detection
+                geometry
+                    .original_accessor_indices
+                    .insert(name.to_string(), idx);
 
                 match name.as_str() {
                     "POSITION" => {
@@ -454,7 +587,7 @@ impl GltfTranscoder {
                         // Track accessor index so we can update componentType to U32 after encoding
                         geometry
                             .feature_id_accessor_indices
-                            .push((name.to_string(), idx as u64));
+                            .push((name.to_string(), idx));
                     }
                     _ => {
                         // Skip unknown attributes for now
@@ -581,12 +714,12 @@ impl GltfTranscoder {
         }
 
         // Add feature IDs (from EXT_mesh_features)
-        // Encode as u32 for Draco compatibility (Draco GENERIC attributes work better with integers)
-        // The glTF accessor componentType will be updated to U32 after encoding
+        // Encode as u16 for Draco compatibility (Draco GENERIC attributes work better with integers)
+        // The glTF accessor componentType will be updated to U16 after encoding
         for (name, feature_ids) in &geometry.feature_ids {
-            let feature_ids: Vec<NdVector<1, u32>> = feature_ids
+            let feature_ids: Vec<NdVector<1, u16>> = feature_ids
                 .iter()
-                .map(|&id| NdVector::from([id as u32]))
+                .map(|&id| NdVector::from([id as u16]))
                 .collect();
             builder.add_attribute(
                 feature_ids,
@@ -756,6 +889,12 @@ struct CompressedPrimitive {
     indices_accessor_idx: Option<u64>,
     /// Feature ID accessor indices that need their componentType updated to U32
     feature_id_accessor_indices: Vec<u64>,
+    /// Maps attribute name to original accessor index (for detecting shared accessors)
+    original_accessor_indices: HashMap<String, u64>,
+    /// Number of vertices in this primitive (for updating accessor count after duplication)
+    vertex_count: usize,
+    /// Number of indices in this primitive (for updating indices accessor count after duplication)
+    indices_count: usize,
 }
 
 struct CompressedPrimitiveData {
@@ -765,6 +904,12 @@ struct CompressedPrimitiveData {
     indices_accessor_idx: Option<u64>,
     /// Feature ID accessor indices that need their componentType updated to U32
     feature_id_accessor_indices: Vec<u64>,
+    /// Maps attribute name to original accessor index (for detecting shared accessors)
+    original_accessor_indices: HashMap<String, u64>,
+    /// Number of vertices in this primitive (for updating accessor count after duplication)
+    vertex_count: usize,
+    /// Number of indices in this primitive (for updating indices accessor count after duplication)
+    indices_count: usize,
 }
 
 /// Extracted geometry from a primitive.
@@ -781,6 +926,8 @@ struct ExtractedGeometry {
     indices: Vec<u32>,
     indices_accessor_idx: Option<u64>,
     draco_attribute_ids: DracoAttributeIds,
+    /// Maps attribute name to original accessor index (for detecting shared accessors)
+    original_accessor_indices: HashMap<String, u64>,
 }
 
 #[cfg(test)]

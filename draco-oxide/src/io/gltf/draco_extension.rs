@@ -232,7 +232,8 @@ pub fn remove_buffer_views(
     {
         if let Some(tables) = ext.get_mut("propertyTables").and_then(|t| t.as_array_mut()) {
             for table in tables.iter_mut() {
-                if let Some(properties) = table.get_mut("properties").and_then(|p| p.as_object_mut())
+                if let Some(properties) =
+                    table.get_mut("properties").and_then(|p| p.as_object_mut())
                 {
                     for (_, prop) in properties.iter_mut() {
                         // Remap "values" bufferView reference
@@ -269,10 +270,10 @@ pub fn remove_buffer_views(
 }
 
 /// glTF componentType values
-pub const COMPONENT_TYPE_UNSIGNED_INT: u64 = 5125;
+pub const COMPONENT_TYPE_UNSIGNED_SHORT: u64 = 5123;
 
-/// Update accessor componentType to UNSIGNED_INT (5125).
-/// This is needed for feature ID attributes that are encoded as u32 in Draco
+/// Update accessor componentType to UNSIGNED_SHORT (5123).
+/// This is needed for feature ID attributes that are encoded as u16 in Draco
 /// but originally declared as FLOAT in glTF.
 pub fn update_accessor_component_type(json: &mut Value, accessor_idx: u64, component_type: u64) {
     if let Some(accessor) = json
@@ -281,6 +282,83 @@ pub fn update_accessor_component_type(json: &mut Value, accessor_idx: u64, compo
         .and_then(|a| a.as_object_mut())
     {
         accessor.insert("componentType".to_string(), json!(component_type));
+    }
+}
+
+/// Duplicate an accessor with a new count.
+/// Returns the index of the new accessor.
+pub fn duplicate_accessor(json: &mut Value, original_idx: usize, new_count: usize) -> usize {
+    let accessors = json
+        .get_mut("accessors")
+        .and_then(|a| a.as_array_mut())
+        .expect("accessors array should exist");
+
+    // Clone the original accessor
+    let mut new_accessor = accessors[original_idx].clone();
+
+    // Update the count
+    if let Some(obj) = new_accessor.as_object_mut() {
+        obj.insert("count".to_string(), json!(new_count));
+        // Also clear bufferView and byteOffset since this will be Draco-compressed
+        obj.remove("bufferView");
+        obj.remove("byteOffset");
+    }
+
+    // Add the new accessor and return its index
+    let new_idx = accessors.len();
+    accessors.push(new_accessor);
+    new_idx
+}
+
+/// Update accessor count.
+pub fn update_accessor_count(json: &mut Value, accessor_idx: usize, new_count: usize) {
+    if let Some(accessor) = json
+        .get_mut("accessors")
+        .and_then(|a| a.get_mut(accessor_idx))
+        .and_then(|a| a.as_object_mut())
+    {
+        accessor.insert("count".to_string(), json!(new_count));
+    }
+}
+
+/// Update a primitive's attribute accessor index.
+pub fn update_primitive_attribute(
+    json: &mut Value,
+    mesh_idx: usize,
+    prim_idx: usize,
+    attr_name: &str,
+    new_accessor_idx: usize,
+) {
+    if let Some(primitive) = json
+        .get_mut("meshes")
+        .and_then(|m| m.get_mut(mesh_idx))
+        .and_then(|m| m.get_mut("primitives"))
+        .and_then(|p| p.get_mut(prim_idx))
+    {
+        if let Some(attrs) = primitive
+            .get_mut("attributes")
+            .and_then(|a| a.as_object_mut())
+        {
+            attrs.insert(attr_name.to_string(), json!(new_accessor_idx));
+        }
+    }
+}
+
+/// Update a primitive's indices accessor index.
+pub fn update_primitive_indices(
+    json: &mut Value,
+    mesh_idx: usize,
+    prim_idx: usize,
+    new_accessor_idx: usize,
+) {
+    if let Some(primitive) = json
+        .get_mut("meshes")
+        .and_then(|m| m.get_mut(mesh_idx))
+        .and_then(|m| m.get_mut("primitives"))
+        .and_then(|p| p.get_mut(prim_idx))
+        .and_then(|p| p.as_object_mut())
+    {
+        primitive.insert("indices".to_string(), json!(new_accessor_idx));
     }
 }
 
