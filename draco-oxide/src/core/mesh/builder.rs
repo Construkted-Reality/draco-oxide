@@ -10,7 +10,6 @@ use crate::core::attribute::{
     Attribute, AttributeDomain, AttributeId, AttributeType, ComponentDataType,
 };
 use crate::core::shared::{PointIdx, VecPointIdx, Vector};
-use crate::prelude::NdVector;
 
 pub struct MeshBuilder {
     pub attributes: Vec<Attribute>,
@@ -169,50 +168,51 @@ impl MeshBuilder {
             .max()
             .unwrap_or(PointIdx::from(0));
 
-        // Create a set of used vertices
-        let mut used_vertices = VecPointIdx::from(vec![false; usize::from(max_vertex_index) + 1]);
-        for face in faces.iter_mut() {
-            for &mut vertex in face {
-                if usize::from(vertex) < used_vertices.len() {
-                    used_vertices[vertex] = true;
+        // Create a set of used vertices (up to max_vertex_index)
+        let num_relevant = usize::from(max_vertex_index) + 1;
+        let mut used_vertices = vec![false; num_relevant];
+        for face in faces.iter() {
+            for &vertex in face {
+                let v = usize::from(vertex);
+                if v < num_relevant {
+                    used_vertices[v] = true;
                 }
             }
         }
-        let mut unused_vertices: Vec<usize> = used_vertices
+
+        // Build sorted list of point indices to keep (only used vertices within range)
+        let keep_indices: Vec<usize> = used_vertices
             .iter()
             .enumerate()
-            .filter_map(|(idx, &used)| if !used { Some(idx) } else { None })
+            .filter_map(|(idx, &used)| if used { Some(idx) } else { None })
             .collect();
-        unused_vertices.sort();
 
+        // Check if any removal is needed
+        let all_used = keep_indices.len() == num_relevant;
+        let no_excess = attributes.iter().all(|att| att.len() <= num_relevant);
+        if all_used && no_excess {
+            return Ok(());
+        }
+
+        // Bulk-retain only the kept points from each attribute
         for att in attributes.iter_mut() {
-            // first remove any vertices greater than the maximum used vertex index
-            for p in ((usize::from(max_vertex_index) + 1)..att.len()).rev() {
-                let p = PointIdx::from(p);
-                att.remove_dyn(p);
-            }
-            // Now remove the unused vertices computed above
-            for &p in unused_vertices.iter().rev() {
-                let p = PointIdx::from(p);
-                att.remove_dyn(p);
+            att.retain_points_dyn(&keep_indices);
+        }
+
+        // Build offset mapping for face index remapping
+        let mut old_to_new = vec![0usize; num_relevant];
+        let mut new_idx = 0;
+        for v in 0..num_relevant {
+            if used_vertices[v] {
+                old_to_new[v] = new_idx;
+                new_idx += 1;
             }
         }
 
-        // Update faces
-        // first, for each vertex v, count how many vertices are removed.
-        let mut offsets = VecPointIdx::from(vec![PointIdx::from(0); used_vertices.len()]);
-        let mut removed_count = 0;
-        for v in 0..offsets.len() {
-            let v = PointIdx::from(v);
-            offsets[v] = PointIdx::from(removed_count);
-            if !used_vertices[v] {
-                removed_count += 1;
-            }
-        }
-        // Now, remap the faces
+        // Remap the faces
         for face in faces.iter_mut() {
             for vertex in face.iter_mut() {
-                *vertex = *vertex - offsets[*vertex];
+                *vertex = PointIdx::from(old_to_new[usize::from(*vertex)]);
             }
         }
 
@@ -325,96 +325,21 @@ impl MeshBuilder {
             return Ok(attribute);
         }
 
-        // Find the first occurrence of each unique vertex to create reverse mapping
-        let mut reverse_mapping = VecPointIdx::from(vec![PointIdx::from(0); unique_count]);
-        for (old_idx, &new_idx) in point_mapping.iter().enumerate() {
-            if old_idx < attribute.len() {
-                reverse_mapping[new_idx] = PointIdx::from(old_idx);
-            }
-        }
-
-        let mut points_met = VecPointIdx::from(vec![false; unique_count]);
-        let removed_vertices: Vec<usize> = (0..point_mapping.len())
+        // Build the sorted list of point indices to keep (first occurrence of each unique vertex)
+        let mut points_met = vec![false; unique_count];
+        let keep_indices: Vec<usize> = (0..point_mapping.len())
             .filter(|&v| {
-                if points_met[point_mapping[PointIdx::from(v)]] {
-                    true
-                } else {
-                    points_met[point_mapping[PointIdx::from(v)]] = true;
+                let mapped = usize::from(point_mapping[PointIdx::from(v)]);
+                if points_met[mapped] {
                     false
+                } else {
+                    points_met[mapped] = true;
+                    true
                 }
             })
-            .collect::<Vec<_>>();
+            .collect();
 
-        // Create new attribute by extracting unique vertices
-        // We'll handle this by copying data element by element
-        match (
-            attribute.get_component_type(),
-            attribute.get_num_components(),
-        ) {
-            (ComponentDataType::F32, 3) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<NdVector<3, f32>, 3>(p);
-                }
-            }
-            (ComponentDataType::F32, 2) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<NdVector<2, f32>, 2>(p);
-                }
-            }
-            (ComponentDataType::F32, 1) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<f32, 1>(p);
-                }
-            }
-            (ComponentDataType::F32, 4) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<NdVector<4, f32>, 4>(p);
-                }
-            }
-            (ComponentDataType::U32, 1) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<u32, 1>(p);
-                }
-            }
-            (ComponentDataType::I32, 1) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<i32, 1>(p);
-                }
-            }
-            (ComponentDataType::I8, 1) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<i8, 1>(p);
-                }
-            }
-            (ComponentDataType::U16, 1) => {
-                for p in removed_vertices.into_iter().rev() {
-                    // Remove the vertex from the mapping
-                    let p = PointIdx::from(p);
-                    attribute.remove::<u16, 1>(p);
-                }
-            }
-            _ => {
-                return Err(Err::DeduplicationError(format!(
-                    "Unsupported attribute type combination: {:?} with {} components",
-                    attribute.get_component_type(),
-                    attribute.get_num_components()
-                )))
-            }
-        };
+        attribute.retain_points_dyn(&keep_indices);
         Ok(attribute)
     }
 }

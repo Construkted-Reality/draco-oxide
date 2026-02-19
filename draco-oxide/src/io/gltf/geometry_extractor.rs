@@ -172,8 +172,28 @@ pub fn read_accessor_as_f32(
     let element_size = accessor.component_type.byte_size() * num_components;
     let stride = buffer_view.byte_stride.unwrap_or(element_size);
     let base_offset = buffer_view.byte_offset + accessor.byte_offset;
+    let total_floats = accessor.count * num_components;
 
-    let mut result = Vec::with_capacity(accessor.count * num_components);
+    // Fast path: tightly-packed f32 data can be copied directly
+    if accessor.component_type == ComponentType::Float && stride == element_size {
+        let total_bytes = total_floats * 4;
+        if base_offset + total_bytes > buffer.len() {
+            return Err(Error::OutOfBounds {
+                offset: base_offset,
+                size: total_bytes,
+                buffer_len: buffer.len(),
+            });
+        }
+        let mut result = vec![0.0f32; total_floats];
+        // Safety: copying raw LE bytes into f32 slice; both are 4-byte aligned in the Vec
+        let dst = unsafe {
+            std::slice::from_raw_parts_mut(result.as_mut_ptr() as *mut u8, total_bytes)
+        };
+        dst.copy_from_slice(&buffer[base_offset..base_offset + total_bytes]);
+        return Ok(result);
+    }
+
+    let mut result = Vec::with_capacity(total_floats);
 
     for i in 0..accessor.count {
         let element_offset = base_offset + i * stride;
@@ -283,8 +303,7 @@ pub fn read_accessor_as_vec3(
     buffer: &[u8],
     accessor_idx: u64,
 ) -> Result<Vec<[f32; 3]>, Error> {
-    let flat = read_accessor_as_f32(json, buffer, accessor_idx)?;
-    Ok(flat.chunks(3).map(|c| [c[0], c[1], c[2]]).collect())
+    read_accessor_as_array::<3>(json, buffer, accessor_idx)
 }
 
 pub fn read_accessor_as_vec2(
@@ -292,8 +311,7 @@ pub fn read_accessor_as_vec2(
     buffer: &[u8],
     accessor_idx: u64,
 ) -> Result<Vec<[f32; 2]>, Error> {
-    let flat = read_accessor_as_f32(json, buffer, accessor_idx)?;
-    Ok(flat.chunks(2).map(|c| [c[0], c[1]]).collect())
+    read_accessor_as_array::<2>(json, buffer, accessor_idx)
 }
 
 pub fn read_accessor_as_vec4(
@@ -301,8 +319,56 @@ pub fn read_accessor_as_vec4(
     buffer: &[u8],
     accessor_idx: u64,
 ) -> Result<Vec<[f32; 4]>, Error> {
-    let flat = read_accessor_as_f32(json, buffer, accessor_idx)?;
-    Ok(flat.chunks(4).map(|c| [c[0], c[1], c[2], c[3]]).collect())
+    read_accessor_as_array::<4>(json, buffer, accessor_idx)
+}
+
+fn read_accessor_as_array<const N: usize>(
+    json: &Value,
+    buffer: &[u8],
+    accessor_idx: u64,
+) -> Result<Vec<[f32; N]>, Error> {
+    let accessor = get_accessor_info(json, accessor_idx)?;
+    let buffer_view = get_buffer_view_info(json, accessor.buffer_view_idx)?;
+
+    if buffer_view.buffer_idx != 0 {
+        return Err(Error::BufferOutOfRange(buffer_view.buffer_idx));
+    }
+
+    let element_size = accessor.component_type.byte_size() * N;
+    let stride = buffer_view.byte_stride.unwrap_or(element_size);
+    let base_offset = buffer_view.byte_offset + accessor.byte_offset;
+
+    // Fast path: tightly-packed f32 data can be reinterpreted directly
+    if accessor.component_type == ComponentType::Float && stride == element_size {
+        let total_bytes = accessor.count * N * 4;
+        if base_offset + total_bytes > buffer.len() {
+            return Err(Error::OutOfBounds {
+                offset: base_offset,
+                size: total_bytes,
+                buffer_len: buffer.len(),
+            });
+        }
+        let mut result = vec![[0.0f32; N]; accessor.count];
+        let dst = unsafe {
+            std::slice::from_raw_parts_mut(result.as_mut_ptr() as *mut u8, total_bytes)
+        };
+        dst.copy_from_slice(&buffer[base_offset..base_offset + total_bytes]);
+        return Ok(result);
+    }
+
+    // Slow path: per-component conversion
+    let mut result = Vec::with_capacity(accessor.count);
+    for i in 0..accessor.count {
+        let element_offset = base_offset + i * stride;
+        let mut arr = [0.0f32; N];
+        for (c, slot) in arr.iter_mut().enumerate() {
+            let offset = element_offset + c * accessor.component_type.byte_size();
+            *slot = read_component_as_f32(buffer, offset, accessor.component_type)?;
+        }
+        result.push(arr);
+    }
+
+    Ok(result)
 }
 
 pub fn read_accessor_as_scalar_f32(

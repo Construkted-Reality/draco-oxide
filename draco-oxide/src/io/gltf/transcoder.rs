@@ -454,7 +454,7 @@ impl GltfTranscoder {
         }
 
         // Serialize JSON
-        let json_bytes = serde_json::to_vec_pretty(&json)?;
+        let json_bytes = serde_json::to_vec(&json)?;
 
         Ok(TranscodeResult {
             json: json_bytes,

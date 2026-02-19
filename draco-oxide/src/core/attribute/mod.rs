@@ -1,8 +1,19 @@
 use serde::Serialize;
 
+use kiddo::immutable::float::kdtree::ImmutableKdTree;
+use kiddo::SquaredEuclidean;
+
 use super::{buffer, shared::DataValue};
 use crate::core::shared::{AttributeValueIdx, PointIdx, VecPointIdx, Vector};
 use crate::prelude::{ByteReader, ByteWriter};
+
+fn vector_to_f64_array<Data: Vector<N>, const N: usize>(v: &Data) -> [f64; N] {
+    let mut out = [0.0f64; N];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = (*v.get(i)).to_f64();
+    }
+    out
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Err {
@@ -398,70 +409,75 @@ impl Attribute {
     where
         Data: Vector<N>,
     {
-        let mut duplicate_indeces = Vec::new();
-        // start with identity mapping
-        let mut point_to_att_val_map = VecPointIdx::<_>::from(
-            (0..self.len())
-                .map(|i| i.into())
-                .collect::<Vec<AttributeValueIdx>>(),
-        );
-        for (i, val) in self.unique_vals_as_slice::<Data>().iter().enumerate() {
-            if i == self.len() - 1 {
-                // last element, no need to check for duplicates
-                break;
-            }
-            if duplicate_indeces.contains(&i) {
-                // already processed this value
-                continue;
-            }
-            let mut local_duplicate_indeces = Vec::new();
-            for (j, other_val) in self.unique_vals_as_slice::<Data>()[i + 1..]
-                .iter()
-                .enumerate()
-            {
-                if val == other_val {
-                    local_duplicate_indeces.push(i + 1 + j);
-                }
-            }
-            if local_duplicate_indeces.is_empty() {
-                continue;
-            }
+        let n = self.len();
+        if n <= 1 {
+            return;
+        }
 
-            for &duplicate_idx in local_duplicate_indeces.iter() {
-                // update the mapping
-                let duplicate_idx = PointIdx::from(duplicate_idx);
-                point_to_att_val_map[duplicate_idx] = i.into();
+        let values = self.unique_vals_as_slice::<Data>();
+
+        // Convert all values to f64 arrays for the KD-tree
+        let f64_points: Vec<[f64; N]> = values.iter().map(|v| vector_to_f64_array(v)).collect();
+
+        // Build an immutable KD-tree over the f64 points
+        let tree = ImmutableKdTree::<f64, u32, N, 32>::new_from_slice(&f64_points);
+
+        // canonical_index[i] = the index of the first occurrence that i is a duplicate of,
+        // or i itself if it's not a duplicate.
+        let mut canonical_index = vec![usize::MAX; n];
+        let mut has_duplicates = false;
+
+        for i in 0..n {
+            if canonical_index[i] != usize::MAX {
+                // already marked as a duplicate of something
+                continue;
             }
-            duplicate_indeces.extend(local_duplicate_indeces);
-        }
-        let mut curr_max = 0;
-        for p in 0..point_to_att_val_map.len() {
-            let p = PointIdx::from(p);
-            let val_idx = point_to_att_val_map[p];
-            if usize::from(val_idx) == curr_max + 1 {
-                // no gap
-                curr_max += 1;
-            } else if usize::from(val_idx) > curr_max + 1 {
-                // gap found, update the index
-                curr_max += 1;
-                for q in usize::from(p)..point_to_att_val_map.len() {
-                    let q = PointIdx::from(q);
-                    if point_to_att_val_map[q] == val_idx {
-                        point_to_att_val_map[q] = curr_max.into();
-                    }
+            canonical_index[i] = i; // it's its own canonical
+
+            // Query the KD-tree for nearby points
+            let neighbors = tree.within_unsorted::<SquaredEuclidean>(&f64_points[i], f64::EPSILON);
+
+            for neighbor in &neighbors {
+                let j = neighbor.item as usize;
+                if j <= i || canonical_index[j] != usize::MAX {
+                    continue;
+                }
+                // Post-filter with exact typed equality
+                if values[i] == values[j] {
+                    canonical_index[j] = i;
+                    has_duplicates = true;
                 }
             }
         }
-        if !duplicate_indeces.is_empty() {
-            self.point_to_att_val_map = Some(point_to_att_val_map);
+
+        if !has_duplicates {
+            return;
         }
-        // remove the duplicates from the buffer
-        duplicate_indeces.sort_unstable();
-        for i in duplicate_indeces.into_iter().rev() {
-            self.buffer.remove::<Data, N>(i);
+
+        // Build old_to_new mapping: assign compacted indices to non-duplicate entries
+        let mut old_to_new = vec![0usize; n];
+        let mut keep_indices = Vec::new();
+        let mut new_idx = 0;
+        for i in 0..n {
+            if canonical_index[i] == i {
+                // This is a canonical (non-duplicate) entry
+                old_to_new[i] = new_idx;
+                keep_indices.push(i);
+                new_idx += 1;
+            }
         }
+
+        // Build the point-to-attribute-value map
+        let map_data: Vec<AttributeValueIdx> = (0..n)
+            .map(|i| old_to_new[canonical_index[i]].into())
+            .collect();
+        self.point_to_att_val_map = Some(VecPointIdx::<_>::from(map_data));
+
+        // Compact the buffer to keep only canonical entries
+        self.buffer.retain_indices(&keep_indices);
     }
 
+    #[allow(unused)]
     pub(crate) fn remove<Data, const N: usize>(&mut self, p_idx: PointIdx) {
         let p_idx_usize = usize::from(p_idx);
         assert!(
@@ -496,6 +512,7 @@ impl Attribute {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn remove_dyn(&mut self, p_idx: PointIdx) {
         assert!(
             usize::from(p_idx) < self.len(),
@@ -518,6 +535,7 @@ impl Attribute {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn remove_unique_val<Data, const N: usize>(&mut self, val_idx: AttributeValueIdx) {
         let val_idx = usize::from(val_idx);
         assert!(
@@ -550,6 +568,48 @@ impl Attribute {
                 "Unsupported component size: {}",
                 self.get_component_type().size()
             ),
+        }
+    }
+
+    /// Retains only points at the given sorted indices. O(n) instead of O(n^2).
+    /// `keep_point_indices` must be sorted in ascending order.
+    pub(crate) fn retain_points_dyn(&mut self, keep_point_indices: &[usize]) {
+        if let Some(ref map) = self.point_to_att_val_map {
+            // Build new map for kept points and find which unique values survive
+            let num_unique = self.buffer.len();
+            let mut unique_val_referenced = vec![false; num_unique];
+            let mut new_map = Vec::with_capacity(keep_point_indices.len());
+
+            for &p in keep_point_indices {
+                let val_idx = map[PointIdx::from(p)];
+                unique_val_referenced[usize::from(val_idx)] = true;
+                new_map.push(val_idx);
+            }
+
+            // Build compacted index mapping for unique values
+            let mut old_unique_to_new = vec![0usize; num_unique];
+            let mut keep_unique_indices = Vec::new();
+            let mut new_unique_idx = 0;
+            for i in 0..num_unique {
+                if unique_val_referenced[i] {
+                    old_unique_to_new[i] = new_unique_idx;
+                    keep_unique_indices.push(i);
+                    new_unique_idx += 1;
+                }
+            }
+
+            // Update map indices to point to compacted positions
+            let new_map: Vec<AttributeValueIdx> = new_map
+                .iter()
+                .map(|&val_idx| old_unique_to_new[usize::from(val_idx)].into())
+                .collect();
+            self.point_to_att_val_map = Some(VecPointIdx::from(new_map));
+
+            // Compact the buffer
+            self.buffer.retain_indices(&keep_unique_indices);
+        } else {
+            // No map — buffer indices correspond directly to point indices
+            self.buffer.retain_indices(keep_point_indices);
         }
     }
 }

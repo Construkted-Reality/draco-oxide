@@ -326,6 +326,26 @@ impl AttributeBuffer {
         // Update the last pointer
         self.last = unsafe { self.as_ptr().add(self.len * elem_size) };
     }
+
+    /// Retains only the elements at the given sorted indices, compacting the buffer in O(n).
+    /// `keep_indices` must be sorted in ascending order and contain valid indices < self.len.
+    pub fn retain_indices(&mut self, keep_indices: &[usize]) {
+        let elem_size = self.num_components * self.component_type.size();
+        let mut write_pos = 0;
+        for &idx in keep_indices {
+            debug_assert!(idx < self.len, "retain_indices: index {} out of bounds (len {})", idx, self.len);
+            if write_pos != idx {
+                unsafe {
+                    let src = self.as_ptr().add(idx * elem_size);
+                    let dst = self.as_ptr().add(write_pos * elem_size);
+                    ptr::copy_nonoverlapping(src, dst, elem_size);
+                }
+            }
+            write_pos += 1;
+        }
+        self.len = keep_indices.len();
+        self.last = unsafe { self.as_ptr().add(self.len * elem_size) };
+    }
 }
 
 impl Serialize for AttributeBuffer {
