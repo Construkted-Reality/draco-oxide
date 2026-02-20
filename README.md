@@ -37,7 +37,7 @@ Planned for the **beta** milestone.
 ### Add to Your Project
 
 ```txt
-draco-oxide = "0.1.0-alpha.4"
+draco-oxide = "0.1.0-alpha.5"
 ```
 
 ### Example: Encode an obj file.
