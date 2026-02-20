@@ -43,7 +43,6 @@ where
         }
         SymbolEncodingMethod::DirectCoded => {
             let num_symbols = symbols.iter().filter(|&&x| x > 0).count();
-
             encode_symbols_direct_coded(symbols, num_symbols, writer)
         }
     }

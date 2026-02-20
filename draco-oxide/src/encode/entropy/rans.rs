@@ -199,9 +199,16 @@ where
                 let mut err = total_rans_prob - rans_precision;
                 let mut i = distribution.len() - 1;
                 while err > 0 {
-                    distribution[sorted_probabilities[i]] -= 1;
-                    i -= 1;
-                    err -= 1;
+                    if distribution[sorted_probabilities[i]] > 1 {
+                        distribution[sorted_probabilities[i]] -= 1;
+                        err -= 1;
+                    }
+                    if i == 0 {
+                        // Wrap around if we still have error to distribute
+                        i = distribution.len() - 1;
+                    } else {
+                        i -= 1;
+                    }
                 }
             }
         }

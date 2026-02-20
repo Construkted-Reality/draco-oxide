@@ -371,7 +371,7 @@ where
                 .iter()
                 .flat_map(|v| (0..N).map(|i| *v.get(i) as u64))
                 .collect::<Vec<_>>();
-            encode_symbols(symbols, N, SymbolEncodingMethod::DirectCoded, self.writer)?
+            encode_symbols(symbols, N, SymbolEncodingMethod::DirectCoded, self.writer)?;
         } else {
             // If RANS encoding is not used, we write the output directly
             for value in output {
