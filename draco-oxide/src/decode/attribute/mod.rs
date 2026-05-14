@@ -522,8 +522,10 @@ where
         return Err(Err::SymbolStreamSurplus);
     }
 
-    // Deportabilize. Output vertices in vertex-id order.
-    let mut data_flat: Vec<f32> = Vec::with_capacity(num_attr_values * N);
+    // Deportabilize. Output vertices in vertex-id order, written
+    // straight into the final `Vec<NdVector<N, f32>>` so we don't
+    // pay for a flat `Vec<f32>` intermediate + element-wise repack.
+    let mut data: Vec<NdVector<N, f32>> = Vec::with_capacity(num_attr_values);
     let mut tmp = vec![0f32; N];
     for (i, v) in partial.iter().enumerate() {
         if !visited[i] {
@@ -537,7 +539,11 @@ where
                 }
             }
         }
-        data_flat.extend_from_slice(&tmp);
+        let mut nd = <NdVector<N, f32> as Vector<N>>::zero();
+        for j in 0..N {
+            *nd.get_mut(j) = tmp[j];
+        }
+        data.push(nd);
     }
 
     // Optionally produce a vertex-indexed (= corner-table indexed)
@@ -562,7 +568,6 @@ where
         None
     };
 
-    let data = nd_vector_vec::<N>(data_flat);
     // Use `from_without_removing_duplicates` — the decoder must
     // preserve the on-wire value ordering so per-vertex lookups via
     // attribute corner table indices stay correct. `Attribute::from`'s
@@ -578,26 +583,6 @@ where
         Vec::new(),
     );
     Ok((attr, ct_indexed))
-}
-
-/// Convert a flat `Vec<f32>` of length `len*N` into a `Vec<NdVector<N, f32>>`.
-/// Avoids touching the macro-generated `NdVector` constructors when N is
-/// generic.
-fn nd_vector_vec<const N: usize>(flat: Vec<f32>) -> Vec<NdVector<N, f32>>
-where
-    NdVector<N, f32>: Vector<N, Component = f32>,
-{
-    debug_assert!(flat.len() % N == 0);
-    let count = flat.len() / N;
-    let mut out: Vec<NdVector<N, f32>> = Vec::with_capacity(count);
-    for i in 0..count {
-        let mut v = <NdVector<N, f32> as Vector<N>>::zero();
-        for j in 0..N {
-            *v.get_mut(j) = flat[i * N + j];
-        }
-        out.push(v);
-    }
-    out
 }
 
 /// N-component generic version of `predict_parallelogram`. Operates on
@@ -1103,7 +1088,7 @@ fn decode_uv_attribute<R: ByteReader>(
     // iterates p = N-1..0 (reverse), so the i-th complex-prediction
     // call in DECODER's forward iteration corresponds to the
     // i-th-FROM-END encoder push.
-    let mut orientations_remaining = orientations.clone();
+    let mut orientations_remaining = orientations;
     let mut last_decoded: [i32; 2] = [0; 2];
 
     for c in &sequence {
@@ -1183,17 +1168,21 @@ fn decode_uv_attribute<R: ByteReader>(
         return Err(Err::SymbolStreamSurplus);
     }
 
-    // Dequantize to f32 in attribute-vertex-id-ascending order.
-    let mut data_flat: Vec<f32> = Vec::with_capacity(num_attr_values * N);
+    // Dequantize to f32 in attribute-vertex-id-ascending order,
+    // straight into the final `Vec<NdVector<N, f32>>`.
+    let mut data: Vec<NdVector<N, f32>> = Vec::with_capacity(num_attr_values);
     let mut tmp = vec![0f32; N];
     for (i, v) in partial.iter().enumerate() {
         if !visited[i] {
             continue;
         }
         dequant.dequantize_into(v, &mut tmp);
-        data_flat.extend_from_slice(&tmp);
+        let mut nd = <NdVector<N, f32> as Vector<N>>::zero();
+        for j in 0..N {
+            *nd.get_mut(j) = tmp[j];
+        }
+        data.push(nd);
     }
-    let data = nd_vector_vec::<N>(data_flat);
     // Use `from_without_removing_duplicates` — the decoder must
     // preserve the on-wire value ordering so per-vertex lookups via
     // attribute corner table indices stay correct. `Attribute::from`'s

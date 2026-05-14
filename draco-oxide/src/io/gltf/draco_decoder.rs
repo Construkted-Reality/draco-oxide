@@ -179,7 +179,7 @@ pub fn splice_glb_remove_draco(input: &[u8]) -> Result<Vec<u8>, Error> {
             }
             let encoded = &bin_bytes[encoded_offset..encoded_offset + encoded_len];
 
-            let mut reader = encoded.to_vec().into_iter();
+            let mut reader: &[u8] = encoded;
             let raw = decode::decode_to_raw(&mut reader, decode::Config::default())?;
 
             align_to_4(&mut new_bin);
