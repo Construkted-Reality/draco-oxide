@@ -226,8 +226,9 @@ fn decode_rabs_seam_bits(prob_zero: u8, buf: &[u8], count: usize) -> Result<Vec<
         return Ok(vec![false; count]);
     }
     let buf_len = buf.len();
-    let mut iter = buf.to_vec().into_iter();
-    let mut rabs: RabsDecoder<_> = RabsDecoder::new(&mut iter, buf_len, prob_zero as usize, None)?;
+    let mut reader: &[u8] = buf;
+    let mut rabs: RabsDecoder<_> =
+        RabsDecoder::new(&mut reader, buf_len, prob_zero as usize, None)?;
     let mut bits = Vec::with_capacity(count);
     for _ in 0..count {
         bits.push(rabs.read().unwrap_or(0) != 0);
@@ -469,7 +470,6 @@ fn replay_symbols(
         }
     }
     let (start_face_prob_zero, start_face_buf_owned) = source.start_face_buf();
-    let start_face_prob_zero = start_face_prob_zero;
     let start_face_buf: Vec<u8> = start_face_buf_owned.to_vec();
 
     let symbol_source = source;

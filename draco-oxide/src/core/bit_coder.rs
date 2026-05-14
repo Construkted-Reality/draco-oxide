@@ -290,7 +290,7 @@ impl ByteReader for vec::IntoIter<u8> {
 /// Byte slice reader. Avoids the `Vec<u8>` clone that the iterator
 /// impl forces on callers who already hold a `&[u8]` (e.g. the GLB
 /// splice path, which carries multi-MB Draco buffers per primitive).
-impl<'a> ByteReader for &'a [u8] {
+impl ByteReader for &[u8] {
     fn read_u8(&mut self) -> Result<u8, ReaderErr> {
         let (&first, rest) = self.split_first().ok_or(ReaderErr::NotEnoughData)?;
         *self = rest;

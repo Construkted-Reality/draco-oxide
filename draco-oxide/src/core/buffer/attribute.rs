@@ -431,7 +431,7 @@ impl std::fmt::Debug for AttributeBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let data = match self.component_type {
             ComponentDataType::Invalid => {
-                return format!("Invalid component type").fmt(f);
+                return "Invalid component type".fmt(f);
             }
             ComponentDataType::U8 => match self.num_components {
                 1 => format!("{:?}", unsafe { self.as_slice::<[u8; 1]>() }),

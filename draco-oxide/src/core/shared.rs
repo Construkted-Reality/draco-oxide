@@ -601,7 +601,11 @@ pub trait Vector<const N: usize>:
     fn zero() -> Self;
     fn get(&self, index: usize) -> &Self::Component;
     fn get_mut(&mut self, index: usize) -> &mut Self::Component;
+    /// # Safety
+    /// Caller must ensure `index` is in bounds for `Self`.
     unsafe fn get_unchecked(&self, index: usize) -> &Self::Component;
+    /// # Safety
+    /// Caller must ensure `index` is in bounds for `Self`.
     unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut Self::Component;
 }
 

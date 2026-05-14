@@ -23,19 +23,12 @@ pub(crate) trait GenericCornerTable {
     fn left_most_corner(&self, vertex: VertexIdx) -> CornerIdx;
 
     fn swing_right(&self, corner: CornerIdx) -> Option<CornerIdx> {
-        if let Some(c) = self.opposite(self.previous(corner)) {
-            Some(self.previous(c))
-        } else {
-            None
-        }
+        self.opposite(self.previous(corner))
+            .map(|c| self.previous(c))
     }
 
     fn swing_left(&self, corner: CornerIdx) -> Option<CornerIdx> {
-        if let Some(c) = self.opposite(self.next(corner)) {
-            Some(self.next(c))
-        } else {
-            None
-        }
+        self.opposite(self.next(corner)).map(|c| self.next(c))
     }
 
     fn is_on_boundary(&self, v: VertexIdx) -> bool {
@@ -715,7 +708,7 @@ mod tests {
         assert_eq!(corner_table.num_vertices(), 6); // Vertex 0 is non-manifold, so it is duplicated.
         let answer: VecVertexIdx<CornerIdx> = vec![0, 1, 2, 4, 5, 3]
             .into_iter()
-            .map(|x| CornerIdx::from(x))
+            .map(CornerIdx::from)
             .collect::<Vec<_>>()
             .into();
         assert_eq!(corner_table.left_most_corners, answer);

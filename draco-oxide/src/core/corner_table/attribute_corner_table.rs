@@ -176,11 +176,8 @@ impl AttributeCornerTable {
         corner: CornerIdx,
         corner_table: &CornerTable,
     ) -> Option<CornerIdx> {
-        if let Some(corner) = self.opposite(self.previous(corner, corner_table), corner_table) {
-            Some(self.previous(corner, corner_table))
-        } else {
-            None
-        }
+        self.opposite(self.previous(corner, corner_table), corner_table)
+            .map(|c| self.previous(c, corner_table))
     }
 
     pub(crate) fn swing_left(
@@ -188,11 +185,8 @@ impl AttributeCornerTable {
         corner: CornerIdx,
         corner_table: &CornerTable,
     ) -> Option<CornerIdx> {
-        if let Some(corner) = self.opposite(self.next(corner, corner_table), corner_table) {
-            Some(self.next(corner, corner_table))
-        } else {
-            None
-        }
+        self.opposite(self.next(corner, corner_table), corner_table)
+            .map(|c| self.next(c, corner_table))
     }
 
     pub(crate) fn is_corner_opposite_to_seam_edge(&self, corner: CornerIdx) -> bool {
@@ -252,14 +246,8 @@ mod tests {
             attr_corner_table.is_vertex_on_seam.len(),
             corner_table.num_vertices()
         );
-        assert!(attr_corner_table
-            .is_edge_on_seam
-            .iter()
-            .all(|&x| x == false));
-        assert!(attr_corner_table
-            .is_vertex_on_seam
-            .iter()
-            .all(|&x| x == false));
+        assert!(attr_corner_table.is_edge_on_seam.iter().all(|&x| !x));
+        assert!(attr_corner_table.is_vertex_on_seam.iter().all(|&x| !x));
         assert!(attr_corner_table
             .left_most_corners
             .iter()

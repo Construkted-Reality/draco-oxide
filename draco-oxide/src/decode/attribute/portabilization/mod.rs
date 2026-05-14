@@ -84,9 +84,7 @@ impl Quantization {
         debug_assert_eq!(value.len(), out.len());
         debug_assert_eq!(value.len(), self.mins.len());
         if self.max_quantized == 0.0 || self.range == 0.0 {
-            for i in 0..value.len() {
-                out[i] = self.mins[i];
-            }
+            out.copy_from_slice(&self.mins);
             return;
         }
         for i in 0..value.len() {
@@ -117,9 +115,10 @@ impl OctahedralNormal {
     }
 
     /// `oct_i32[2] → unit_normal_f32[3]`. The encoder did:
-    ///   1. `octahedral_transform(normal)` → `[u, v]` in `[-1, 1]`
-    ///   2. `+ (1, 1)` → `[0, 2]`
-    ///   3. `* max_quantized` → `i32`
+    /// 1. `octahedral_transform(normal)` → `[u, v]` in `[-1, 1]`
+    /// 2. `+ (1, 1)` → `[0, 2]`
+    /// 3. `* max_quantized` → `i32`
+    ///
     /// We invert each step then call `octahedral_inverse_transform`.
     pub(crate) fn dequantize(&self, value: &[i32; 2]) -> [f32; 3] {
         if self.max_quantized == 0.0 {

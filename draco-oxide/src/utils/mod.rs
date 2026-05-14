@@ -28,13 +28,7 @@ pub(crate) fn merge_indices(
     let mut iters = set_of_subseqs
         .into_iter()
         .map(|v| v.into_iter())
-        .filter_map(|mut it| {
-            if let Some(r) = it.next() {
-                Some((r, it))
-            } else {
-                None
-            }
-        })
+        .filter_map(|mut it| it.next().map(|r| (r, it)))
         .collect::<Vec<_>>();
 
     if iters.len() < set_of_subseqs_len {

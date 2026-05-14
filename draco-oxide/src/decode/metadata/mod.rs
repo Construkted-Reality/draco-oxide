@@ -76,7 +76,7 @@ impl AttributeMetadata {
         Ok(AttributeMetadata {
             key,
             value,
-            submetadata: submetadata,
+            submetadata,
         })
     }
 

@@ -321,11 +321,7 @@ fn json_has_draco_primitive(json: &Value) -> bool {
     meshes.iter().any(|mesh| {
         mesh.get("primitives")
             .and_then(|v| v.as_array())
-            .map(|prims| {
-                prims
-                    .iter()
-                    .any(|p| draco_extension::is_draco_compressed(p))
-            })
+            .map(|prims| prims.iter().any(draco_extension::is_draco_compressed))
             .unwrap_or(false)
     })
 }
@@ -464,7 +460,7 @@ mod tests {
         );
         for p in &decoded {
             assert!(
-                p.mesh.get_faces().len() > 0,
+                !p.mesh.get_faces().is_empty(),
                 "primitive {}/{} has 0 faces",
                 p.mesh_idx,
                 p.primitive_idx

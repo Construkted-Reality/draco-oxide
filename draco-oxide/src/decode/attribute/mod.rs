@@ -139,6 +139,17 @@ impl crate::prelude::ConfigType for Config {
     }
 }
 
+/// Quantized i32 positions indexed by corner-table vertex ID. Threaded
+/// from the position decoder into the normal/UV decoders so they can
+/// run prediction in the int-quantized domain without losing
+/// precision via dequantize → re-quantize.
+pub(crate) type CtVertexQuantizedPositions = Vec<[i32; 3]>;
+
+/// `(decoded_attribute, optional_ct_vertex_indexed_positions,
+///   effective_decoder_id)` — return shape of `decode_one_attribute`
+/// and the position-attribute decoder.
+pub(crate) type DecodedAttribute = (Attribute, Option<CtVertexQuantizedPositions>, Option<u8>);
+
 /// Per-face seed corners for the per-attribute Traverser, in reverse
 /// face order (matches the encoder's traversal sweep). Equivalent to
 /// `(0..num_faces).rev().map(|i| CornerIdx::from(3 * i)).collect()`.
@@ -293,7 +304,7 @@ fn decode_one_attribute<R: ByteReader>(
     num_position_vertices: usize,
     position_parent: Option<&Attribute>,
     positions_by_ct_vertex: Option<&[[i32; 3]]>,
-) -> Result<(Attribute, Option<Vec<[i32; 3]>>, Option<u8>), Err> {
+) -> Result<DecodedAttribute, Err> {
     // ── 1-3: per-attribute header bytes ─────────────────────────────────
     let pred_scheme_id = reader.read_u8()?;
     let xform_kind = InverseTransformKind::from_id(reader.read_u8()?)?;
@@ -469,7 +480,7 @@ fn decode_quantized_attribute<R: ByteReader, const N: usize>(
     xform_kind: InverseTransformKind,
     _start_corners: &[CornerIdx],
     return_ct_indexed: bool,
-) -> Result<(Attribute, Option<Vec<[i32; 3]>>), Err>
+) -> Result<(Attribute, Option<CtVertexQuantizedPositions>), Err>
 where
     NdVector<N, f32>: Vector<N, Component = f32>,
     NdVector<N, i32>: Vector<N, Component = i32>,
@@ -559,8 +570,8 @@ where
             }
         }
         let mut nd = <NdVector<N, f32> as Vector<N>>::zero();
-        for j in 0..N {
-            *nd.get_mut(j) = tmp[j];
+        for (j, &val) in tmp.iter().enumerate() {
+            *nd.get_mut(j) = val;
         }
         data.push(nd);
     }
@@ -575,11 +586,7 @@ where
         let mut out: Vec<[i32; 3]> = vec![[0; 3]; buf_len];
         for (i, v) in partial.iter().enumerate() {
             if visited[i] {
-                let mut p = [0i32; 3];
-                for j in 0..3 {
-                    p[j] = v[j];
-                }
-                out[i] = p;
+                out[i] = [v[0], v[1], v[2]];
             }
         }
         Some(out)
@@ -864,8 +871,8 @@ fn predict_normal(
     if abs > upper_bound {
         let q = abs / upper_bound;
         if q > 0 {
-            for k in 0..3 {
-                sum[k] /= q;
+            for s in sum.iter_mut() {
+                *s /= q;
             }
         }
     }
@@ -929,7 +936,7 @@ fn integer_vector_to_quantized_oct(
         };
     }
     // CanonicalizeOctahedralCoords: snap edge points to canonical positions.
-    if (s == 0 && t == 0) || (s == 0 && t == max_value) || (s == max_value && t == 0) {
+    if (s == 0 && (t == 0 || t == max_value)) || (s == max_value && t == 0) {
         s = max_value;
         t = max_value;
     } else if s == 0 && t > center_value {
@@ -997,15 +1004,15 @@ fn into_faithful_oct_quantization(vec: [i32; 2], max: i32) -> [i32; 2] {
 /// `shared/attribute/prediction_scheme/mesh_prediction_for_texture_coordinates.rs`.
 ///
 /// Byte layout this consumes (after the 3 header bytes already read):
-///   1. RANS-coded UV symbols (2 per visited vertex).
-///   2. Prediction metadata (this scheme):
-///        u32 — orientation bit count (one bit per complex prediction).
-///        u8  — RABS zero_prob.
-///        leb128 — RABS buffer length.
-///        bytes  — RABS-coded RLE bits (encoder reverses them then runs
-///                  `o == last_orientation ? 1 : 0`).
-///   3. WrappedDifference transform metadata (min, max).
-///   4. QuantizationCoordinateWise deportabilization metadata.
+/// 1. RANS-coded UV symbols (2 per visited vertex).
+/// 2. Prediction metadata (this scheme):
+///    - u32 — orientation bit count (one bit per complex prediction).
+///    - u8 — RABS zero_prob.
+///    - leb128 — RABS buffer length.
+///    - bytes — RABS-coded RLE bits (encoder reverses them then runs
+///      `o == last_orientation ? 1 : 0`).
+/// 3. WrappedDifference transform metadata (min, max).
+/// 4. QuantizationCoordinateWise deportabilization metadata.
 fn decode_uv_attribute<R: ByteReader>(
     reader: &mut R,
     meta: &AttributeMeta,
@@ -1087,7 +1094,7 @@ fn decode_uv_attribute<R: ByteReader>(
     // table and need to reach all faces.
     let sequence = match attr_table {
         Some(t) => {
-            let seeds: Vec<CornerIdx> = start_corners.iter().copied().collect();
+            let seeds = start_corners.to_vec();
             Traverser::new(t, seeds).compute_sequence()
         }
         None => {
@@ -1187,8 +1194,8 @@ fn decode_uv_attribute<R: ByteReader>(
         }
         dequant.dequantize_into(v, &mut tmp);
         let mut nd = <NdVector<N, f32> as Vector<N>>::zero();
-        for j in 0..N {
-            *nd.get_mut(j) = tmp[j];
+        for (j, &val) in tmp.iter().enumerate() {
+            *nd.get_mut(j) = val;
         }
         data.push(nd);
     }

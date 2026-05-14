@@ -10,7 +10,7 @@ use crate::utils::geom::point_to_face_distance_3d;
 /// Represents a 3D mesh.
 /// It consists of a list of faces, where each face is defined by three vertex indices,
 /// and a list of attributes ([Attribute]) that can be associated with the mesh.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Mesh {
     pub(crate) faces: Vec<[PointIdx; 3]>,
     pub(crate) attributes: Vec<Attribute>,
@@ -56,12 +56,7 @@ impl Mesh {
     }
 
     pub fn new() -> Self {
-        Self {
-            faces: Vec::new(),
-            attributes: Vec::new(),
-
-            name: String::new(),
-        }
+        Self::default()
     }
 
     pub fn diff_l2_norm(&self, other: &Self) -> f64 {

@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(
             sequence_points
                 .into_iter()
-                .map(|c| usize::from(c))
+                .map(usize::from)
                 .collect::<Vec<_>>(),
             vec![3, 1, 0, 2]
         );
@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(
             sequence_normals
                 .into_iter()
-                .map(|c| usize::from(c))
+                .map(usize::from)
                 .collect::<Vec<_>>(),
             vec![3, 1, 0, 2]
         );
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(
             sequence_tex_coords
                 .into_iter()
-                .map(|c| usize::from(c))
+                .map(usize::from)
                 .collect::<Vec<_>>(),
             vec![3, 1, 0, 2, 5, 4]
         );

@@ -300,7 +300,7 @@ impl Attribute {
     }
 
     /// returns the data values as a slice of values casted to the given type.
-    /// # Safety:
+    /// # Safety
     /// This function assumes that the buffer's data is properly aligned and matches the type `Data`.
     #[inline]
     pub unsafe fn unique_vals_as_slice_unchecked<Data>(&self) -> &[Data] {
@@ -309,7 +309,7 @@ impl Attribute {
     }
 
     /// returns the data values as a mutable slice of values casted to the given type.
-    /// # Safety:
+    /// # Safety
     /// This function assumes that the buffer's data is properly aligned and matches the type `Data`.
     #[inline]
     pub unsafe fn unique_vals_as_slice_unchecked_mut<Data>(&mut self) -> &mut [Data] {
@@ -906,7 +906,7 @@ mod tests {
             att.point_to_att_val_map
                 .unwrap()
                 .into_iter()
-                .map(|v| usize::from(v))
+                .map(usize::from)
                 .collect::<Vec<_>>(),
             vec![0, 1, 2, 0, 1, 3],
         )

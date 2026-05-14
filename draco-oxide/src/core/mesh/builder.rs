@@ -11,6 +11,7 @@ use crate::core::attribute::{
 };
 use crate::core::shared::{PointIdx, VecPointIdx, Vector};
 
+#[derive(Default)]
 pub struct MeshBuilder {
     pub attributes: Vec<Attribute>,
     faces: Vec<[usize; 3]>,
@@ -19,11 +20,7 @@ pub struct MeshBuilder {
 
 impl MeshBuilder {
     pub fn new() -> Self {
-        Self {
-            attributes: Vec::new(),
-            current_id: 0,
-            faces: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn add_attribute<Data, const N: usize>(
@@ -153,8 +150,8 @@ impl MeshBuilder {
     /// Removes unused vertices from the attributes.
     /// This is done by checking the connectivity (faces) and removing any vertices that are not referenced.
     fn remove_unused_vertices(
-        attributes: &mut Vec<Attribute>,
-        faces: &mut Vec<[PointIdx; 3]>,
+        attributes: &mut [Attribute],
+        faces: &mut [[PointIdx; 3]],
     ) -> Result<(), Err> {
         if faces.is_empty() || attributes.is_empty() {
             return Ok(());

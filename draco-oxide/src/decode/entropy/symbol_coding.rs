@@ -105,7 +105,7 @@ where
         16 => decode_symbols_direcd_coded_precision_unwrapped::<R, 16, 20>(num_symbols, reader),
         17 => decode_symbols_direcd_coded_precision_unwrapped::<R, 17, 20>(num_symbols, reader),
         18 => decode_symbols_direcd_coded_precision_unwrapped::<R, 18, 20>(num_symbols, reader),
-        _ => return Err(Err::InvalidBitLength(max_bit_length as usize)),
+        _ => Err(Err::InvalidBitLength(max_bit_length as usize)),
     }
 }
 

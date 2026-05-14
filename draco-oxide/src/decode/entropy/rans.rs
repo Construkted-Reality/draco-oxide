@@ -148,7 +148,7 @@ where
 const fn compute_rans_precision(num_symbols_bit_length: usize) -> usize {
     let mut precision = 12;
     if num_symbols_bit_length > 0 {
-        precision = (num_symbols_bit_length + 2) / 3;
+        precision = num_symbols_bit_length.div_ceil(3);
     }
     if precision < 12 {
         12
@@ -175,7 +175,7 @@ pub(crate) struct RansSymbolDecoder<
     rans_decoder: RansDecoder<R::Rev, RANS_PRECISION>,
 }
 
-impl<'reader, R, const NUM_SYMBOLS_BIT_LENGTH: usize, const RANS_PRECISION: usize>
+impl<R, const NUM_SYMBOLS_BIT_LENGTH: usize, const RANS_PRECISION: usize>
     RansSymbolDecoder<R, NUM_SYMBOLS_BIT_LENGTH, RANS_PRECISION>
 where
     R: ByteReader,
