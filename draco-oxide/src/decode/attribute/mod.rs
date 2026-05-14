@@ -674,10 +674,7 @@ fn decode_normal_attribute<R: ByteReader>(
     // leb128 len + RABS-coded flip bits (one per normal vertex).
     let flip_prob = reader.read_u8()?;
     let flip_buf_len = crate::utils::bit_coder::leb128_read(reader)? as usize;
-    let mut flip_buf = Vec::with_capacity(flip_buf_len);
-    for _ in 0..flip_buf_len {
-        flip_buf.push(reader.read_u8()?);
-    }
+    let flip_buf = crate::utils::bit_coder::read_byte_buffer(reader, flip_buf_len)?;
     let mut flips: Vec<bool> = Vec::with_capacity(num_attr_values);
     if flip_buf_len > 0 {
         let mut iter = flip_buf.into_iter();
@@ -1034,10 +1031,7 @@ fn decode_uv_attribute<R: ByteReader>(
     };
     let flip_prob = reader.read_u8()?;
     let buf_len = crate::utils::bit_coder::leb128_read(reader)? as usize;
-    let mut rabs_buf = Vec::with_capacity(buf_len);
-    for _ in 0..buf_len {
-        rabs_buf.push(reader.read_u8()?);
-    }
+    let rabs_buf = crate::utils::bit_coder::read_byte_buffer(reader, buf_len)?;
 
     let inverse_xform = InverseTransform::read(reader, xform_kind)?;
     let dequant = Quantization::read(reader, N)?;

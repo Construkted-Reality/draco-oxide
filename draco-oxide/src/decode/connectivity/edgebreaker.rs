@@ -353,10 +353,7 @@ fn read_topology_splits<R: ByteReader>(reader: &mut R) -> Result<Vec<TopologySpl
 /// Reads the symbol byte buffer and decodes `num_symbols` CrLight symbols.
 fn read_symbols<R: ByteReader>(reader: &mut R, num_symbols: usize) -> Result<Vec<Symbol>, Err> {
     let byte_len = leb128_read(reader)? as usize;
-    let mut buf = Vec::with_capacity(byte_len);
-    for _ in 0..byte_len {
-        buf.push(reader.read_u8()?);
-    }
+    let buf = crate::utils::bit_coder::read_byte_buffer(reader, byte_len)?;
     let mut iter = buf.into_iter();
     let mut bit_reader: BitReader<'_, _, LsbFirst> =
         BitReader::spown_from(&mut iter).ok_or(Err::SymbolStreamExhausted)?;
@@ -372,10 +369,7 @@ fn read_symbols<R: ByteReader>(reader: &mut R, num_symbols: usize) -> Result<Vec
 fn read_buffer_with_prob<R: ByteReader>(reader: &mut R) -> Result<(u8, Vec<u8>), Err> {
     let prob_zero = reader.read_u8()?;
     let byte_len = leb128_read(reader)? as usize;
-    let mut buf = Vec::with_capacity(byte_len);
-    for _ in 0..byte_len {
-        buf.push(reader.read_u8()?);
-    }
+    let buf = crate::utils::bit_coder::read_byte_buffer(reader, byte_len)?;
     Ok((prob_zero, buf))
 }
 

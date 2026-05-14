@@ -21,6 +21,32 @@ where
     Ok(result)
 }
 
+/// Maximum bytes a single declared-length read pre-allocates up front.
+/// A larger declared length still succeeds — the buffer grows on
+/// demand — but the up-front allocation can't be larger than this,
+/// so a hostile bitstream containing a multi-GB leb128 length can't
+/// trigger an OOM-abort before any actual bytes are read. If the
+/// stream truly does carry more than the cap, the per-byte reads
+/// will succeed and the `Vec` will reallocate normally.
+const PREALLOC_CAP: usize = 64 * 1024 * 1024;
+
+/// Read `declared_len` bytes from `reader` into a fresh `Vec<u8>`.
+/// Use this any time the length comes from the bitstream itself
+/// (typically via `leb128_read`) — it caps the initial allocation so
+/// that a malformed length field can't OOM-abort the process before
+/// the decoder gets a chance to surface a `ReaderErr`.
+pub(crate) fn read_byte_buffer<R>(reader: &mut R, declared_len: usize) -> Result<Vec<u8>, ReaderErr>
+where
+    R: ByteReader,
+{
+    let cap = declared_len.min(PREALLOC_CAP);
+    let mut buf = Vec::with_capacity(cap);
+    for _ in 0..declared_len {
+        buf.push(reader.read_u8()?);
+    }
+    Ok(buf)
+}
+
 pub(crate) fn leb128_write<W>(mut value: u64, writer: &mut W)
 where
     W: ByteWriter,
@@ -40,6 +66,25 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_byte_buffer_does_not_oom_on_huge_declared_length() {
+        // Empty stream + a leb128-style declared length of "u32::MAX".
+        // The cap means we don't try to allocate 4 GiB up front; the
+        // per-byte reads then fail with `ReaderErr` at byte 0.
+        let bytes: Vec<u8> = Vec::new();
+        let mut reader = bytes.into_iter();
+        let res = read_byte_buffer(&mut reader, u32::MAX as usize);
+        assert!(res.is_err(), "should error rather than allocate huge buffer");
+    }
+
+    #[test]
+    fn read_byte_buffer_succeeds_when_bytes_available() {
+        let bytes: Vec<u8> = (0u8..16).collect();
+        let mut reader = bytes.into_iter();
+        let buf = read_byte_buffer(&mut reader, 16).unwrap();
+        assert_eq!(buf, (0u8..16).collect::<Vec<_>>());
+    }
 
     #[test]
     fn manual_test_leb128_write_read() {
