@@ -1,4 +1,4 @@
-use crate::core::attribute::ComponentDataType;
+use crate::core::attribute::{AttributeType, ComponentDataType};
 use crate::core::shared::{CornerIdx, PointIdx};
 use crate::prelude::{ByteReader, ConfigType, Mesh};
 
@@ -8,14 +8,33 @@ mod connectivity;
 mod attribute;
 mod entropy;
 
-/// Decodes a Draco bitstream into a `Mesh`.
+/// Decodes a Draco bitstream into a `Mesh`. Discards any non-fatal
+/// warnings the decoder produced — use [`decode_with_warnings`] when
+/// you need to detect attributes that were silently skipped because
+/// the decoder doesn't yet support their prediction scheme / transform.
+pub fn decode<R>(reader: &mut R, cfg: Config) -> Result<Mesh, Err>
+where
+    R: ByteReader,
+{
+    decode_with_warnings(reader, cfg).map(|(mesh, _warnings)| mesh)
+}
+
+/// Like [`decode`] but also returns any [`DecodeWarning`]s the pipeline
+/// surfaced. A non-empty warnings list means the returned `Mesh` is
+/// partial — typically an attribute with an unsupported prediction
+/// scheme was skipped, and downstream consumers should branch
+/// accordingly (fall back to a flat shading, ask for a re-render, etc.)
+/// rather than treat the mesh as fully decoded.
 ///
 /// Pipeline (mirrors `encode/mod.rs::encode`):
 /// 1. header → `decode/header`
 /// 2. metadata (if header flags say so) → `decode/metadata`
 /// 3. connectivity → `decode/connectivity`
 /// 4. attributes → `decode/attribute`
-pub fn decode<R>(reader: &mut R, _cfg: Config) -> Result<Mesh, Err>
+pub fn decode_with_warnings<R>(
+    reader: &mut R,
+    _cfg: Config,
+) -> Result<(Mesh, Vec<DecodeWarning>), Err>
 where
     R: ByteReader,
 {
@@ -27,6 +46,7 @@ where
 
     let conn = connectivity::decode_connectivity(reader, &header).map_err(Err::Connectivity)?;
 
+    let mut warnings = Vec::new();
     let attrs = attribute::decode_attributes(
         reader,
         &header,
@@ -35,6 +55,7 @@ where
         &conn.start_corners,
         conn.num_position_vertices,
         attribute::Config {},
+        &mut warnings,
     )
     .map_err(Err::Attribute)?;
 
@@ -73,7 +94,7 @@ where
         })
         .collect();
     mesh.attributes = attrs;
-    Ok(mesh)
+    Ok((mesh, warnings))
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +127,27 @@ pub enum Err {
     InconsistentCornerVertex { corner: usize, vertex: usize },
     #[error("Metadata decoding error: {0}")]
     Metadata(#[from] metadata::Err),
+}
+
+/// Non-fatal issue surfaced during decode. Returned alongside the
+/// `Mesh` / `DecodedRaw` from the `_with_warnings` API variants.
+#[derive(Debug, Clone)]
+pub enum DecodeWarning {
+    /// An attribute couldn't be decoded because its prediction
+    /// scheme, transform, or component layout isn't yet supported.
+    /// Earlier attributes in the same primitive were decoded
+    /// normally; the returned mesh just lacks this one. After this
+    /// fires, the byte stream is in an undefined state — no further
+    /// attributes are read.
+    AttributeSkipped {
+        /// Position of the skipped attribute in the bitstream's
+        /// per-primitive attribute list (0 = first, etc.).
+        attribute_index: usize,
+        /// What kind of attribute was being decoded.
+        attribute_type: AttributeType,
+        /// Human-readable description of the missing decoder path.
+        reason: String,
+    },
 }
 
 /// Flat byte buffer holding the index list immediately followed by each
@@ -172,7 +214,21 @@ pub struct RawAttribute {
 /// Tiles), this function dedupes per-corner attribute tuples to produce
 /// one unified `vertex_count` that all accessors share, with sequential
 /// indices. This is what every standard glTF loader expects.
-pub fn decode_to_raw<R>(reader: &mut R, _cfg: Config) -> Result<DecodedRaw, Err>
+pub fn decode_to_raw<R>(reader: &mut R, cfg: Config) -> Result<DecodedRaw, Err>
+where
+    R: ByteReader,
+{
+    decode_to_raw_with_warnings(reader, cfg).map(|(raw, _warnings)| raw)
+}
+
+/// Like [`decode_to_raw`] but also returns any [`DecodeWarning`]s the
+/// pipeline surfaced. Same partial-decode semantics as
+/// [`decode_with_warnings`]: a non-empty warnings list means at least
+/// one attribute couldn't be decoded and is missing from the output.
+pub fn decode_to_raw_with_warnings<R>(
+    reader: &mut R,
+    _cfg: Config,
+) -> Result<(DecodedRaw, Vec<DecodeWarning>), Err>
 where
     R: ByteReader,
 {
@@ -181,6 +237,7 @@ where
         let _metadata = metadata::decode_metadata(reader).map_err(Err::Metadata)?;
     }
     let conn = connectivity::decode_connectivity(reader, &header).map_err(Err::Connectivity)?;
+    let mut warnings = Vec::new();
     let attrs = attribute::decode_attributes_with_meta(
         reader,
         &header,
@@ -189,10 +246,12 @@ where
         &conn.start_corners,
         conn.num_position_vertices,
         attribute::Config {},
+        &mut warnings,
     )
     .map_err(Err::Attribute)?;
 
-    build_raw(&conn, &attrs)
+    let raw = build_raw(&conn, &attrs)?;
+    Ok((raw, warnings))
 }
 
 /// Per-corner attribute-value-index tuple keyed by attribute count.

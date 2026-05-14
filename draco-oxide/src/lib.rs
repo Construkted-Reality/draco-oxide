@@ -30,7 +30,10 @@ pub mod prelude {
     pub use crate::core::shared::{DataValue, NdVector, PointIdx, Vector};
     pub use crate::encode::{self, encode};
     pub use crate::core::attribute::ComponentDataType;
-    pub use crate::decode::{self, decode, decode_to_raw, DecodedRaw, RawAttribute};
+    pub use crate::decode::{
+        self, decode, decode_to_raw, decode_to_raw_with_warnings, decode_with_warnings,
+        DecodeWarning, DecodedRaw, RawAttribute,
+    };
     pub use crate::io::gltf::draco_decoder::splice_glb_remove_draco;
 }
 

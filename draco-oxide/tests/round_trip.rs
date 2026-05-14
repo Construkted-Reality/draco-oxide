@@ -38,6 +38,51 @@ fn smoke_multi_attribute_decode_returns_positions() {
     assert_eq!(pos.len(), 4, "tetra has 4 unique positions");
 }
 
+/// `decode_with_warnings` returns the same `Mesh` as `decode` and
+/// the warnings list reflects what happened: empty on a clean
+/// decode, populated with `AttributeSkipped` if the pipeline hit
+/// an unsupported attribute path mid-stream.
+#[test]
+fn decode_with_warnings_clean_decode_has_empty_warnings() {
+    use draco_oxide::prelude::decode_with_warnings;
+
+    let original = load_obj(TETRAHEDRON_PATH).expect("load tetrahedron.obj");
+    let mut buf = Vec::new();
+    encode::encode(original, &mut buf, encode::Config::default()).expect("encode");
+
+    let mut reader_a = buf.clone().into_iter();
+    let mesh_via_decode =
+        decode::decode(&mut reader_a, decode::Config::default()).expect("decode");
+
+    let mut reader_b = buf.into_iter();
+    let (mesh_via_warnings, warnings) =
+        decode_with_warnings(&mut reader_b, decode::Config::default())
+            .expect("decode_with_warnings");
+
+    // Same Mesh shape from both APIs.
+    assert_eq!(
+        mesh_via_decode.get_faces().len(),
+        mesh_via_warnings.get_faces().len(),
+        "both APIs should produce the same number of faces"
+    );
+    assert_eq!(
+        mesh_via_decode.get_attributes().len(),
+        mesh_via_warnings.get_attributes().len(),
+        "both APIs should produce the same attribute count"
+    );
+
+    // For tetra, every attribute decoder is supported — no skips
+    // expected. If the attribute count changes (e.g. tetra grows new
+    // attribute kinds, or a decoder branch regresses to fallback),
+    // this assertion fires and the warnings vec tells you what was
+    // skipped.
+    assert!(
+        warnings.is_empty(),
+        "expected no warnings on a clean tetrahedron decode, got {:?}",
+        warnings
+    );
+}
+
 /// Self round-trip with positions + per-vertex RGBA colors. Exercises
 /// the AttributeType::Color → QuantizationCoordinateWise N=4 dispatch
 /// that we just added (3D Tiles content with vertex colors instead of

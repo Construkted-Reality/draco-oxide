@@ -154,7 +154,9 @@ fn face_seed_corners(num_faces: usize) -> Vec<CornerIdx> {
 ///
 /// When an unsupported attribute is encountered, decoding stops and
 /// returns the attributes decoded so far so that downstream consumers
-/// can still use the positions.
+/// can still use the positions. A `DecodeWarning::AttributeSkipped`
+/// is appended to `warnings` so callers can detect the partial
+/// decode.
 pub(crate) fn decode_attributes<R: ByteReader>(
     reader: &mut R,
     header: &Header,
@@ -163,6 +165,7 @@ pub(crate) fn decode_attributes<R: ByteReader>(
     start_corners: &[CornerIdx],
     num_position_vertices: usize,
     cfg: Config,
+    warnings: &mut Vec<crate::decode::DecodeWarning>,
 ) -> Result<Vec<Attribute>, Err> {
     Ok(decode_attributes_with_meta(
         reader,
@@ -172,6 +175,7 @@ pub(crate) fn decode_attributes<R: ByteReader>(
         start_corners,
         num_position_vertices,
         cfg,
+        warnings,
     )?
     .into_iter()
     .map(|(att, _)| att)
@@ -190,6 +194,7 @@ pub(crate) fn decode_attributes_with_meta<R: ByteReader>(
     start_corners: &[CornerIdx],
     num_position_vertices: usize,
     _cfg: Config,
+    warnings: &mut Vec<crate::decode::DecodeWarning>,
 ) -> Result<Vec<(Attribute, Option<u8>)>, Err> {
     let metas = read_metadata(reader, header)?;
     let mut out: Vec<(Attribute, Option<u8>)> = Vec::with_capacity(metas.len());
@@ -200,7 +205,7 @@ pub(crate) fn decode_attributes_with_meta<R: ByteReader>(
     // than dequantized f32 + re-quantize) avoids a precision-losing
     // round trip.
     let mut positions_by_ct_vertex: Option<Vec<[i32; 3]>> = None;
-    for meta in &metas {
+    for (attribute_index, meta) in metas.iter().enumerate() {
         let position_parent = out
             .iter()
             .map(|(a, _)| a)
@@ -233,16 +238,20 @@ pub(crate) fn decode_attributes_with_meta<R: ByteReader>(
             }
             // Best-effort: if a non-position attribute trips an
             // unimplemented decode path (oct transforms, oct port,
-            // 2-component layouts, MeshNormalPrediction, etc.), return
-            // what we've decoded so far rather than failing the whole
-            // mesh. The caller still gets correctly-decoded positions.
-            // After this, the byte stream is in an undefined state — we
-            // can't continue to the next attribute.
-            Err(Err::PredictionSchemeTodo(_))
-            | Err(Err::UnsupportedNumComponents(_))
-            | Err(Err::InverseTransform(
-                inverse_prediction_transform::Err::OctahedralTodo,
-            )) => {
+            // 2-component layouts, MeshNormalPrediction, etc.), record
+            // a warning and return what we've decoded so far rather
+            // than failing the whole mesh. The caller still gets
+            // correctly-decoded earlier attributes. After this, the
+            // byte stream is in an undefined state — we can't continue
+            // to the next attribute.
+            Err(reason @ (Err::PredictionSchemeTodo(_)
+            | Err::UnsupportedNumComponents(_)
+            | Err::InverseTransform(inverse_prediction_transform::Err::OctahedralTodo))) => {
+                warnings.push(crate::decode::DecodeWarning::AttributeSkipped {
+                    attribute_index,
+                    attribute_type: meta.attribute_type,
+                    reason: reason.to_string(),
+                });
                 return Ok(out);
             }
             Err(e) => return Err(e),
