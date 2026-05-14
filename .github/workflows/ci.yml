@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Surface clippy warnings without failing the build — there's a
+      # stylistic backlog we're working through. Promote to `-D warnings`
+      # once the new-code warning count is at zero.
+      - run: cargo clippy -p draco-oxide --no-deps
+
+  test:
+    name: cargo test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The `draco_decoder` cxx dev-dep needs cmake + a C++ toolchain to
+      # build the bundled libdraco source. macOS has them out of the box;
+      # ubuntu needs cmake.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake
+      - name: cargo test --lib
+        run: cargo test -p draco-oxide --lib
+      - name: cargo test --tests
+        run: cargo test -p draco-oxide --tests
+
+  wasm:
+    name: wasm32 build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target wasm32-unknown-unknown -p draco-oxide --no-default-features
