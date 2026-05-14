@@ -78,13 +78,14 @@ impl DecoderAttributeCornerTable {
         let mut is_edge_on_seam = vec![false; num_corners];
         let mut visited_faces = vec![false; num_faces];
         let mut bit_idx = 0usize;
+        debug_assert_eq!(primary_offsets.len(), num_faces);
         // Match encoder iteration order: faces in REVERSE of decoder
         // face order. Skip start-face entries (sentinel u8::MAX) since
         // they were never in encoder's processed_connectivity_corners.
         // Boundary edges of skipped start-faces still need to be
         // marked as seams below.
         for f in (0..num_faces).rev() {
-            let off_raw = *primary_offsets.get(f).unwrap_or(&0);
+            let off_raw = primary_offsets[f];
             if off_raw == u8::MAX {
                 continue;
             }

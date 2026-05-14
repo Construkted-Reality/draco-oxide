@@ -94,6 +94,11 @@ pub enum Err {
     Connectivity(#[from] connectivity::Err),
     #[error("Header decoding error: {0}")]
     Header(#[from] header::Err),
+    #[error(
+        "Corner {corner} references vertex {vertex} which has no decoded \
+         position — the connectivity and attribute streams are inconsistent"
+    )]
+    InconsistentCornerVertex { corner: usize, vertex: usize },
     #[error("Metadata decoding error: {0}")]
     Metadata(#[from] metadata::Err),
 }
@@ -182,7 +187,7 @@ where
     )
     .map_err(Err::Attribute)?;
 
-    Ok(build_raw(&conn, &attrs))
+    build_raw(&conn, &attrs)
 }
 
 /// Per-corner attribute-value-index tuple keyed by attribute count.
@@ -225,7 +230,7 @@ impl CornerTuple {
 fn build_raw(
     conn: &connectivity::DecodedConnectivity,
     attrs: &[(crate::core::attribute::Attribute, Option<u8>)],
-) -> DecodedRaw {
+) -> Result<DecodedRaw, Err> {
     use crate::core::attribute::AttributeType;
     use crate::core::corner_table::GenericCornerTable;
     use std::collections::hash_map::Entry;
@@ -275,7 +280,10 @@ fn build_raw(
                         .get(universal_v)
                         .copied()
                         .filter(|&r| r != u32::MAX)
-                        .unwrap_or(0);
+                        .ok_or(Err::InconsistentCornerVertex {
+                            corner: c,
+                            vertex: universal_v,
+                        })?;
                     per_corner_indices[c * n_attrs + a] = value_idx;
                 }
             }
@@ -395,7 +403,7 @@ fn build_raw(
         });
     }
 
-    DecodedRaw {
+    Ok(DecodedRaw {
         data,
         vertex_count,
         index_count,
@@ -403,7 +411,7 @@ fn build_raw(
         indices_byte_length,
         indices_component_type: idx_ct,
         attributes: raw_attributes,
-    }
+    })
 }
 
 #[inline]

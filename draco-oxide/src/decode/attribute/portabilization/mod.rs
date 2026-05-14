@@ -25,6 +25,8 @@ pub enum Err {
     InvalidId(u8),
     #[error("Octahedral deportabilization requires N=2 input but got N={0}")]
     OctahedralWrongInputN(usize),
+    #[error("Octahedral quantization bits {0} out of supported range (1..=31)")]
+    OctahedralBitsOutOfRange(u8),
 }
 
 /// On-wire IDs (encoder side: `PortabilizationType::get_id`):
@@ -107,7 +109,10 @@ pub(crate) struct OctahedralNormal {
 impl OctahedralNormal {
     pub(crate) fn read<R: ByteReader>(reader: &mut R) -> Result<Self, Err> {
         let bits = reader.read_u8()?;
-        let max_quantized = ((1u32 << bits.saturating_sub(1)).saturating_sub(1)) as f32;
+        if bits == 0 || bits > 31 {
+            return Err(Err::OctahedralBitsOutOfRange(bits));
+        }
+        let max_quantized = ((1u32 << (bits - 1)) - 1) as f32;
         Ok(Self { max_quantized })
     }
 

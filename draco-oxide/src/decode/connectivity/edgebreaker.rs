@@ -192,10 +192,11 @@ fn compute_seam_bit_count(
     num_faces: usize,
 ) -> usize {
     use super::corner_table::NO_CORNER;
+    debug_assert_eq!(primary_offsets.len(), num_faces);
     let mut visited = vec![false; num_faces];
     let mut count = 0usize;
     for f in (0..num_faces).rev() {
-        let off_raw = *primary_offsets.get(f).unwrap_or(&0);
+        let off_raw = primary_offsets[f];
         if off_raw == u8::MAX {
             // Start-face entry — encoder never iterates it.
             continue;
