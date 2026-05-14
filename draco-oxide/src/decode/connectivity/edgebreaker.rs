@@ -768,6 +768,12 @@ fn replay_symbols(
         });
     }
 
+    // Flatten the S-merge alias chains once now that replay is done,
+    // so every subsequent `vertex_idx` / `point_idx` lookup is a
+    // single array indirection instead of a chain walk. Chains can
+    // only grow during replay, so the work doesn't need redoing.
+    ct.compress_alias_chains();
+
     // Re-derive `left_most_corner[v]` to match the encoder's algorithm
     // (swing-left-most per vertex, iterated in face order). The values
     // set during symbol replay are correct for the replay's own

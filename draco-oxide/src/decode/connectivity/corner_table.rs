@@ -54,17 +54,37 @@ impl DecoderCornerTable {
 
     /// Resolve a vertex ID through the S-merge alias chain to its
     /// surviving canonical ID. `usize::MAX` sentinel = no alias.
+    ///
+    /// Walks the chain, so callers on the per-corner hot path should
+    /// invoke `compress_alias_chains` once after symbol replay
+    /// finishes to flatten every entry to its terminal survivor — that
+    /// reduces this from O(chain depth) to a single array indirection
+    /// for every subsequent lookup.
     #[inline]
     pub(crate) fn resolve_alias(&self, mut v: usize) -> usize {
-        let mut hops = 0;
-        while v < self.vertex_alias.len()
-            && self.vertex_alias[v] != usize::MAX
-            && hops < self.vertex_alias.len() + 1
-        {
+        while v < self.vertex_alias.len() && self.vertex_alias[v] != usize::MAX {
             v = self.vertex_alias[v];
-            hops += 1;
         }
         v
+    }
+
+    /// Flatten every `vertex_alias` entry to the terminal survivor of
+    /// its chain. After this runs, `resolve_alias` becomes a single
+    /// indirection. Idempotent. Call once after symbol replay
+    /// completes — chains can only grow during replay, so the work
+    /// only needs doing once.
+    pub(crate) fn compress_alias_chains(&mut self) {
+        for i in 0..self.vertex_alias.len() {
+            if self.vertex_alias[i] == usize::MAX {
+                continue;
+            }
+            // Walk to the terminal survivor.
+            let mut v = self.vertex_alias[i];
+            while v < self.vertex_alias.len() && self.vertex_alias[v] != usize::MAX {
+                v = self.vertex_alias[v];
+            }
+            self.vertex_alias[i] = v;
+        }
     }
 
     /// Record `merged_out → survivor` for the post-replay alias walk.
