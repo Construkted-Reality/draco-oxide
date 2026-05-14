@@ -226,7 +226,7 @@ pub fn splice_glb_remove_draco(input: &[u8]) -> Result<Vec<u8>, Error> {
             for attr in &raw.attributes {
                 let semantic_owned: Option<String> = attr.gltf_semantic.map(|s| s.to_string());
                 let gltf_name = match by_unique_id
-                    .get(&(attr.unique_id as u32))
+                    .get(&attr.unique_id)
                     .cloned()
                     .or(semantic_owned)
                 {

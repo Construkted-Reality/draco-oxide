@@ -92,6 +92,11 @@ pub enum Err {
     Attribute(#[from] attribute::Err),
     #[error("Connectivity decoding error: {0}")]
     Connectivity(#[from] connectivity::Err),
+    #[error(
+        "Mesh has {num_faces} faces; the flat-buffer index format caps \
+         total corners at u32::MAX"
+    )]
+    FaceCountOverflow { num_faces: usize },
     #[error("Header decoding error: {0}")]
     Header(#[from] header::Err),
     #[error(
@@ -139,7 +144,7 @@ pub struct RawAttribute {
     /// Draco unique-id for this attribute. Mirrors the value in the
     /// glTF extension's `attributes` map (POSITION, NORMAL, TEXCOORD_0,
     /// …) so callers can route attributes back to their semantic name.
-    pub unique_id: u8,
+    pub unique_id: u32,
     /// Byte offset into [`DecodedRaw::data`].
     pub offset: usize,
     /// Total byte length of this attribute's value array. Equal to
@@ -238,6 +243,9 @@ fn build_raw(
 
     let num_faces = conn.faces.len();
     let num_corners = num_faces * 3;
+    if num_corners > u32::MAX as usize {
+        return Err(Err::FaceCountOverflow { num_faces });
+    }
 
     // Build the universal-vertex-id → position-attribute-value-index map.
     // Position attribute values are output in vertex-id-ascending order
@@ -394,7 +402,7 @@ fn build_raw(
         };
 
         raw_attributes.push(RawAttribute {
-            unique_id: att.get_id().as_usize() as u8,
+            unique_id: att.get_id().as_usize() as u32,
             offset,
             byte_length,
             dim,
