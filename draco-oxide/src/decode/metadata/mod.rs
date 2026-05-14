@@ -57,13 +57,13 @@ impl AttributeMetadata {
     {
         let key_length = reader.read_u8()?;
         let mut key = vec![0; key_length as usize];
-        for _ in 0..key_length {
-            key.push(reader.read_u8()?);
+        for i in 0..key_length {
+            key[i as usize] = reader.read_u8()?;
         }
         let value_length = reader.read_u8()?;
         let mut value = vec![0; value_length as usize];
-        for _ in 0..value_length {
-            value.push(reader.read_u8()?);
+        for i in 0..value_length {
+            value[i as usize] = reader.read_u8()?;
         }
 
         // read sub_metadata
@@ -107,4 +107,30 @@ pub fn decode_metadata<W>(reader: &mut W) -> Result<Metadata, Err>
     };
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attribute_metadata_read_lengths_match_declared() {
+        // 1-byte key length + 3 key bytes, 1-byte value length + 4
+        // value bytes, leb128 0 = no submetadata.
+        let bytes: Vec<u8> = vec![3, b'k', b'e', b'y', 4, b'd', b'a', b't', b'a', 0];
+        let mut reader = bytes.into_iter();
+        let meta = AttributeMetadata::read_from(&mut reader).unwrap();
+        assert_eq!(meta.key, vec![b'k', b'e', b'y']);
+        assert_eq!(meta.value, vec![b'd', b'a', b't', b'a']);
+        assert_eq!(meta.submetadata.len(), 0);
+    }
+
+    #[test]
+    fn submetadata_read_lengths_match_declared() {
+        let bytes: Vec<u8> = vec![2, 0xAA, 0xBB, 3, 0x01, 0x02, 0x03];
+        let mut reader = bytes.into_iter();
+        let sub = SubMetadata::read_from(&mut reader).unwrap();
+        assert_eq!(sub.key, vec![0xAA, 0xBB]);
+        assert_eq!(sub.value, vec![0x01, 0x02, 0x03]);
+    }
 }
