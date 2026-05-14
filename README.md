@@ -7,7 +7,7 @@
 
 `draco-oxide` is a high-performance Rust re-write of Google’s [Draco](https://github.com/google/draco) 3D-mesh compression library, featuring efficient streaming I/O and seamless WebAssembly integration.
 
-> **Status:** **Alpha** – Encoder + decoder are both functional for positions, normals, and UVs. UV precision on heavily-seamed meshes is degraded (the decoder operates on the universal corner table; encoder uses per-attribute corner tables for seam-heavy attributes — wiring that through is a follow-up).
+> **Status:** **Alpha** – Encoder + decoder are both functional for positions, normals, UVs, and vertex colors. Decoder output is bit-perfect against Google's reference C++ decoder for typical 3D Tiles content at default encoder settings.
 
 ---
 
@@ -16,9 +16,9 @@
 | Component              | Alpha  | Beta Roadmap       |
 | ------------------     | -----  | ------------------ |
 | Mesh Encoder           | ✅     | Performance optimization |
-| Mesh Decoder           | ✅     | Per-attribute corner table for UV/normal seams |
+| Mesh Decoder           | ✅     | Sequential connectivity, predictive Edgebreaker |
 | glb Transcoder (basic)| ✅     | Animation and many more extensions  |
-| glb Decoder (basic)   | ✅     | Per-attribute corner table for UV/normal seams |
+| glb Decoder (basic)   | ✅     | Animation and many more extensions  |
 
 ### Encoder Highlights
 
@@ -27,68 +27,74 @@
 * Pure‑Rust implementation.
 * `no_std` + `alloc` compatible; builds to **WASM32**, **x86\_64**, **aarch64**, and more.
 
-### Decoder Status
+### Decoder Highlights
 
 The decoder pipeline is end-to-end working for positions, normals,
 UVs, and vertex colors on both this repo's encoder output and
-Google's reference encoder output. UV decode uses a fallback path
-that gives preview-grade fidelity on UV-seamed meshes (~7.5e-2 max
-L2); the per-attribute corner table infrastructure is wired but
-the full pixel-perfect path needs Traverser visit-order
-reconciliation between encoder and decoder. What's wired up today:
+Google's reference encoder output. What's wired up today:
 
-* Header decode + metadata flag handling.
 * Edgebreaker connectivity decode for both **Standard** and **Valence**
   traversal modes (C/R/L/E/S symbols, topology splits for higher-genus
-  meshes, start-face-config replay via RabsDecoder, per-context symbol
-  arrays for Valence with on-the-fly active-context computation from
-  vertex valences).
+  meshes, S-merge alias chain handling, start-face-config replay via
+  RABS, per-context symbol arrays for Valence with on-the-fly active-
+  context computation from vertex valences).
 * Per-attribute decode pipeline: prediction-scheme dispatch,
   WrappedDifference / Difference / NoTransform / OctahedralOrthogonal
   inverse transforms, and QuantizationCoordinateWise / ToBits /
-  OctahedralQuantization deportabilization (positions, UVs, normals).
+  OctahedralQuantization deportabilization.
 * `MeshParallelogramPrediction` inverse for positions.
 * `MeshNormalPrediction` inverse for normals (face-normal sum + flip
-  bits via RABS), with normal output at the 8-bit oct quantization
-  theoretical floor (~5e-2 max L2 error vs Google reference encoder).
-* `MeshPredictionForTextureCoordinates` inverse for UVs (3D triangle
-  plane projection with two-orientation sign-flip + reverse-RLE
-  orientation bits via RABS).
+  bits via RABS), output at the 8-bit oct quantization theoretical
+  floor.
+* `MeshPredictionForTextureCoordinates` inverse for UVs.
 * Vertex colors (`AttributeType::Color`, N=3 RGB or N=4 RGBA) via
   `QuantizationCoordinateWise` + `WrappedDifference`.
-* Both `LengthCoded` and `DirectCoded` symbol entropy paths (matching
-  Google's `DecodeTaggedSymbols` / `DecodeRawSymbols` formats — see
-  `compression/entropy/symbol_decoding.cc`).
-* `Mesh` reconstruction from decoded faces + attributes.
-* glTF `KHR_draco_mesh_compression` extraction wrapper
-  (`io::gltf::draco_decoder::decode_glb`).
+* Both `LengthCoded` and `DirectCoded` symbol entropy paths.
+* glTF `KHR_draco_mesh_compression` integration:
+  `io::gltf::draco_decoder::decode_glb` extracts and decodes every
+  Draco primitive in a `.glb`;
+  `io::gltf::draco_decoder::splice_glb_remove_draco` returns a
+  Draco-free GLB by patching the existing accessors in place,
+  ready for any vanilla glTF loader (bevy_gltf, three.js, gltf-rs).
+* Flat-bytes API (`decode::decode_to_raw`) returning a `DecodedRaw`
+  with indices + per-attribute payload offsets, suitable for splicing
+  straight into a glTF binary buffer without rebuilding the typed
+  `Mesh` first.
+* `decode::decode_with_warnings` and `decode_to_raw_with_warnings`
+  surface non-fatal `DecodeWarning::AttributeSkipped` events when an
+  attribute can't be decoded (unsupported prediction scheme,
+  transform, or component layout) — earlier attributes still come
+  through, callers can detect the partial result.
 * CLI `--decode` mode: `cargo run -p cli -- --decode -i input.drc -o output.obj`.
 
-**Verified compatible with Google's reference encoder** for positions-
-only meshes at default settings (`-cl 7 -qp 11`). See
-`tests/google_compat.rs`:
+**Verified bit-perfect against Google's reference C++ decoder** on
+two test surfaces (`tests/google_compat.rs`):
 
-| Fixture     | Mesh             | Verts | Faces | Edgebreaker | Max L_inf error vs Google ref |
-| ----------- | ---------------- | ----: | ----: | ----------- | -----------------------------: |
-| tetrahedron | closed manifold  |     4 |     4 | Standard    |                            0.0 |
-| sphere      | closed manifold  |   114 |   224 | Standard    |                          1e-6 |
-| torus       | genus-1 manifold | 2 051 | 4 095 | Valence     |                          1e-6 |
-| bunny       | partial mesh     | ~35K  |  ~69K | Valence     |                          1e-6 |
+1. Pre-recorded `.drc` fixtures (encoder = Google's `draco_encoder`
+   1.5.7 at default settings) compared against `.expected.obj`
+   ground-truth outputs:
 
-Our own encoder→decoder pair round-trips cleanly for positions-only
-tetrahedron, sphere, torus, and bunny within quantization tolerance.
+| Fixture     | Verts  | Faces  | Edgebreaker | Max L_inf vs Google |
+| ----------- | -----: | -----: | ----------- | ------------------: |
+| tetrahedron |      4 |      4 | Standard    |                 0.0 |
+| sphere      |    114 |    224 | Standard    |                1e-6 |
+| torus       |  2 051 |  4 095 | Valence     |                1e-6 |
+| bunny       | 34 834 | 69 451 | Valence     |                1e-6 |
 
-Known gaps before "production ready":
+2. Live cross-decoder check via the `draco_decoder = "0.0.26"` crate
+   (cxx-bridged Google C++ Draco): same `.drc` bytes through both
+   decoders, asserts vertex/index counts match and the per-face
+   triangle multiset is structurally identical (vertex ID
+   permutation between the two decoders is allowed). A real Skyline
+   3D Tiles `.b3dm` is bundled in `tests/data/b3dm/` for
+   multi-attribute (POSITION + NORMAL + TEXCOORD_0) coverage.
 
-* Per-attribute corner tables — the encoder uses
-  `attribute_corner_table` for normal/UV-seamed meshes; the decoder
-  always uses the universal corner table. Visual fidelity is
-  acceptable for preview but not pixel-perfect on heavily-seamed
-  inputs (UV decode lands at ~7.5e-2 max L2 vs ~1e-3 quantization
-  floor on tetrahedron).
+Our own encoder→decoder pair round-trips cleanly within
+quantization tolerance.
 
-The public API (`draco_oxide::decode::decode`) is stable — external
-consumers can already wire against it.
+The public API (`draco_oxide::prelude::{decode, decode_to_raw,
+decode_with_warnings, splice_glb_remove_draco, ...}`) is stable —
+external consumers can already wire against it.
 
 #### Test fixtures from Google
 
@@ -114,7 +120,7 @@ done
 ### Add to Your Project
 
 ```txt
-draco-oxide = "0.1.0-alpha.9"
+draco-oxide = "0.1.0-alpha.5"
 ```
 
 ### Example: Encode an obj file.
