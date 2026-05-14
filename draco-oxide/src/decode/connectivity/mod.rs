@@ -28,10 +28,8 @@ pub enum Err {
 /// the corner table that produced it (for the per-attribute decode pipeline),
 /// and the corner-stack residue from the start-face-config replay (used as
 /// seed corners for the attribute-side `Traverser`).
-#[allow(dead_code)]
 pub(crate) struct DecodedConnectivity {
     pub faces: Vec<[VertexIdx; 3]>,
-    pub num_attribute_decoders: u8,
     pub corner_table: DecoderCornerTable,
     /// Start corners for each connected component, in the order they were
     /// popped from the active stack during start-face-config replay.
@@ -44,10 +42,10 @@ pub(crate) struct DecodedConnectivity {
     /// This is the authoritative count for sizing the per-attribute symbol
     /// stream.
     pub num_position_vertices: usize,
-    /// Per-attribute corner tables, one per `num_attribute_decoders`. Index
-    /// matches the `decoder_id` field on `AttributeMeta` (the encoder
-    /// writes `(i as u8).wrapping_sub(1)` so 0xFF means "use position
-    /// table" and other values are indices into this Vec).
+    /// Per-attribute corner tables. Index matches the `decoder_id`
+    /// field on `AttributeMeta` (the encoder writes
+    /// `(i as u8).wrapping_sub(1)` so 0xFF means "use position table"
+    /// and other values are indices into this Vec).
     pub attribute_corner_tables: Vec<DecoderAttributeCornerTable>,
 }
 

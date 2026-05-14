@@ -139,6 +139,17 @@ impl crate::prelude::ConfigType for Config {
     }
 }
 
+/// Per-face seed corners for the per-attribute Traverser, in reverse
+/// face order (matches the encoder's traversal sweep). Equivalent to
+/// `(0..num_faces).rev().map(|i| CornerIdx::from(3 * i)).collect()`.
+fn face_seed_corners(num_faces: usize) -> Vec<CornerIdx> {
+    let mut seeds = Vec::with_capacity(num_faces);
+    for i in (0..num_faces).rev() {
+        seeds.push(CornerIdx::from(3 * i));
+    }
+    seeds
+}
+
 /// Reads all attribute metadata then decodes each attribute.
 ///
 /// When an unsupported attribute is encountered, decoding stops and
@@ -475,13 +486,9 @@ where
         DeportabilizationKind::OctahedralQuantization => unreachable!("not for this path"),
     };
 
-    let num_faces = corner_table.num_faces();
-    let mut seeds = Vec::with_capacity(num_faces);
-    for i in (0..num_faces).rev() {
-        seeds.push(CornerIdx::from(3 * i));
-    }
+    let seeds = face_seed_corners(corner_table.num_faces());
     let traverser = Traverser::new(corner_table, seeds);
-    let sequence = traverser.compute_seqeunce();
+    let sequence = traverser.compute_sequence();
 
     let buf_len = corner_table.num_vertices().max(num_attr_values);
     let mut partial: Vec<[i32; N]> = vec![[0; N]; buf_len];
@@ -684,14 +691,10 @@ fn decode_normal_attribute<R: ByteReader>(
     };
     let universal_v_idx = |c: CornerIdx| -> usize { usize::from(corner_table.vertex_idx(c)) };
 
-    let num_faces = corner_table.num_faces();
-    let mut seeds = Vec::with_capacity(num_faces);
-    for i in (0..num_faces).rev() {
-        seeds.push(CornerIdx::from(3 * i));
-    }
+    let seeds = face_seed_corners(corner_table.num_faces());
     let sequence = match attr_table {
-        Some(t) => Traverser::new(t, seeds).compute_seqeunce(),
-        None => Traverser::new(corner_table, seeds).compute_seqeunce(),
+        Some(t) => Traverser::new(t, seeds).compute_sequence(),
+        None => Traverser::new(corner_table, seeds).compute_sequence(),
     };
 
     let buf_len = num_attr_values.max(corner_table.num_vertices());
@@ -1015,8 +1018,8 @@ fn decode_uv_attribute<R: ByteReader>(
         u32::from_le_bytes([b0, b1, b2, b3]) as usize
     };
     let flip_prob = reader.read_u8()?;
-    let buf_len = crate::utils::bit_coder::leb128_read(reader)? as usize;
-    let rabs_buf = crate::utils::bit_coder::read_byte_buffer(reader, buf_len)?;
+    let rabs_buf_len = crate::utils::bit_coder::leb128_read(reader)? as usize;
+    let rabs_buf = crate::utils::bit_coder::read_byte_buffer(reader, rabs_buf_len)?;
 
     let inverse_xform = InverseTransform::read(reader, xform_kind)?;
     let dequant = Quantization::read(reader, N)?;
@@ -1030,10 +1033,10 @@ fn decode_uv_attribute<R: ByteReader>(
     // mesh_prediction_scheme_tex_coords_portable_decoder.h::DecodePredictionData
     // and rans_bit_encoder.cc::EndEncoding.)
     let mut bits = Vec::with_capacity(orientation_count);
-    if buf_len > 0 && orientation_count > 0 {
+    if rabs_buf_len > 0 && orientation_count > 0 {
         let mut iter = rabs_buf.into_iter();
         let mut rabs: RabsDecoder<_> =
-            RabsDecoder::new(&mut iter, buf_len, flip_prob as usize, None)?;
+            RabsDecoder::new(&mut iter, rabs_buf_len, flip_prob as usize, None)?;
         for _ in 0..orientation_count {
             bits.push(rabs.read().unwrap_or(0) != 0);
         }
@@ -1067,15 +1070,11 @@ fn decode_uv_attribute<R: ByteReader>(
     let sequence = match attr_table {
         Some(t) => {
             let seeds: Vec<CornerIdx> = start_corners.iter().copied().collect();
-            Traverser::new(t, seeds).compute_seqeunce()
+            Traverser::new(t, seeds).compute_sequence()
         }
         None => {
-            let num_faces = corner_table.num_faces();
-            let mut seeds = Vec::with_capacity(num_faces);
-            for i in (0..num_faces).rev() {
-                seeds.push(CornerIdx::from(3 * i));
-            }
-            Traverser::new(corner_table, seeds).compute_seqeunce()
+            let seeds = face_seed_corners(corner_table.num_faces());
+            Traverser::new(corner_table, seeds).compute_sequence()
         }
     };
 
@@ -1265,7 +1264,7 @@ fn uv_predict_complex(
 
     let mut cx_uv = [pn_uv[1], -pn_uv[0]];
     let prod = cx_norm2_squared.checked_mul(pn_norm2_squared)?;
-    let norm_squared = int_sqrt_u64(prod) as i64;
+    let norm_squared = prod.isqrt() as i64;
     cx_uv[0] *= norm_squared;
     cx_uv[1] *= norm_squared;
 
@@ -1295,25 +1294,6 @@ fn uv_predict_fallback_attr(
         return partial[next_vi];
     }
     last_decoded
-}
-
-/// Integer square root, mirroring
-/// `MeshPredictionForTextureCoordinates::int_sqrt`. Newton's method.
-fn int_sqrt_u64(value: u64) -> u64 {
-    if value == 0 {
-        return 0;
-    }
-    let mut act_number = value;
-    let mut sqrt: u64 = 1;
-    while act_number >= 2 {
-        sqrt = sqrt.saturating_mul(2);
-        act_number /= 4;
-    }
-    sqrt = (sqrt + value / sqrt) / 2;
-    while sqrt.saturating_mul(sqrt) > value {
-        sqrt = (sqrt + value / sqrt) / 2;
-    }
-    sqrt
 }
 
 /// On-wire IDs that

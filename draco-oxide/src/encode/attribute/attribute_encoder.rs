@@ -235,7 +235,7 @@ where
                             &corner_table,
                             edgebreaker_out.corners_of_edgebreaker.clone(), // ToDo: take this value
                         )
-                        .compute_seqeunce();
+                        .compute_sequence();
                         self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
                             &corner_table,
                             sequence.into_iter(),
@@ -246,7 +246,7 @@ where
                             corner_table,
                             edgebreaker_out.corners_of_edgebreaker.clone(), // ToDo: take this value
                         )
-                        .compute_seqeunce();
+                        .compute_sequence();
                         self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
                             corner_table,
                             sequence.into_iter(),

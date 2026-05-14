@@ -138,7 +138,6 @@ pub(crate) fn decode<R: ByteReader>(reader: &mut R) -> Result<DecodedConnectivit
 
     Ok(DecodedConnectivity {
         faces,
-        num_attribute_decoders: meta.num_attribute_data,
         corner_table,
         start_corners,
         num_position_vertices: meta.num_vertices,

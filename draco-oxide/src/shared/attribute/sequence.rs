@@ -46,7 +46,7 @@ where
         self.visited_vertices[usize::from(v)] = true;
     }
 
-    pub(crate) fn compute_seqeunce(mut self) -> Vec<CornerIdx> {
+    pub(crate) fn compute_sequence(mut self) -> Vec<CornerIdx> {
         while let Some(curr_corner) = self.corner_traversal_stack.pop() {
             // If the face has not yet been visited, then the
             // other vertices of the face are not visited yet either. If this is the case, then
@@ -180,7 +180,7 @@ mod tests {
 
         let ct_pos = ct.universal_corner_table();
         let sequence_points = Traverser::new(ct_pos, corners.clone())
-            .compute_seqeunce()
+            .compute_sequence()
             .iter()
             .map(|c| ct_pos.point_idx(*c))
             .collect::<Vec<_>>();
@@ -194,7 +194,7 @@ mod tests {
 
         let ct_nor = &ct.attribute_corner_table(1).unwrap();
         let sequence_normals = Traverser::new(ct_nor, corners.clone())
-            .compute_seqeunce()
+            .compute_sequence()
             .iter()
             .map(|c| ct_nor.point_idx(*c))
             .collect::<Vec<_>>();
@@ -208,7 +208,7 @@ mod tests {
 
         let ct_tex = &ct.attribute_corner_table(2).unwrap();
         let sequence_tex_coords = Traverser::new(ct_tex, corners)
-            .compute_seqeunce()
+            .compute_sequence()
             .iter()
             .map(|c| ct_tex.point_idx(*c))
             .collect::<Vec<_>>();

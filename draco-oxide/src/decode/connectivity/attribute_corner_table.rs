@@ -21,8 +21,6 @@ use crate::decode::connectivity::corner_table::{DecoderCornerTable, NO_CORNER};
 pub(crate) struct DecoderAttributeCornerTable {
     pub(crate) corner_to_vertex: Vec<usize>,
     pub(crate) is_edge_on_seam: Vec<bool>,
-    #[allow(dead_code)]
-    pub(crate) is_vertex_on_seam: Vec<bool>,
     pub(crate) left_most_corners: Vec<usize>,
     pub(crate) num_vertices: usize,
     /// Copy of the universal CT's opposite[] so `opposite()` can answer
@@ -200,7 +198,6 @@ impl DecoderAttributeCornerTable {
         Self {
             corner_to_vertex,
             is_edge_on_seam,
-            is_vertex_on_seam,
             left_most_corners,
             num_vertices: num_new_vertices,
             opposite_universal: ct.opposite.clone(),
