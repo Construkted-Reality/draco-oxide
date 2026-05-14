@@ -180,8 +180,16 @@ impl Attribute {
         self.buffer.set_num_components(num_components);
     }
 
-    pub(crate) fn get_data_as_bytes(&self) -> &[u8] {
+    /// Raw byte view of the attribute's value buffer in native (little-endian
+    /// on supported targets) layout. Length equals
+    /// `num_unique_values * num_components * component_type.size()`.
+    pub fn get_data_as_bytes(&self) -> &[u8] {
         self.buffer.as_slice_u8()
+    }
+
+    /// Total byte length of `get_data_as_bytes()`.
+    pub fn get_byte_length(&self) -> usize {
+        self.buffer.as_slice_u8().len()
     }
 
     #[inline]
@@ -700,6 +708,26 @@ impl ComponentDataType {
     pub fn read_from<R: ByteReader>(reader: &mut R) -> Result<Self, Err> {
         let id = reader.read_u8()?;
         Self::from_id(id as usize).map_err(|_| Err::InvalidDataTypeId(id))
+    }
+
+    /// glTF accessor componentType code (5120-5126). Returns `None` for
+    /// `Invalid` and 64-bit integer types (glTF only supports up to 32-bit
+    /// ints).
+    #[inline]
+    pub fn to_gltf_component_type(self) -> Option<u32> {
+        match self {
+            ComponentDataType::I8 => Some(5120),
+            ComponentDataType::U8 => Some(5121),
+            ComponentDataType::I16 => Some(5122),
+            ComponentDataType::U16 => Some(5123),
+            ComponentDataType::U32 => Some(5125),
+            ComponentDataType::F32 => Some(5126),
+            ComponentDataType::I32
+            | ComponentDataType::I64
+            | ComponentDataType::U64
+            | ComponentDataType::F64
+            | ComponentDataType::Invalid => None,
+        }
     }
 }
 

@@ -9,11 +9,16 @@ pub enum Err {
     NotEnoughData(#[from] ReaderErr),
 }
 
+/// Decoded metadata block. Fields are read into memory but not yet
+/// surfaced via the public Mesh API; they're kept here so a future
+/// "expose metadata to consumers" change is non-breaking.
+#[allow(dead_code)]
 pub struct Metadata {
     pub metadata: Vec<AttributeMetadata>,
     pub global_metadata: AttributeMetadata,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SubMetadata {
     pub key: Vec<u8>,
@@ -38,6 +43,7 @@ impl SubMetadata {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AttributeMetadata {
     pub key: Vec<u8>,

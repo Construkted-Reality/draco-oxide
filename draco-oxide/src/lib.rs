@@ -10,8 +10,8 @@ pub(crate) mod shared;
 /// Defines the mesh encoder.
 pub mod encode;
 
-// /// Defines the decoders.
-// pub mod decode;
+/// Defines the decoders.
+pub mod decode;
 
 /// Contains the shared definitions, native objects, and the buffer.
 pub(crate) mod core;
@@ -21,15 +21,17 @@ pub(crate) mod utils;
 
 /// Contains the most commonly used traits, types, and objects.
 pub mod prelude {
-    pub use crate::core::attribute::{Attribute, AttributeType};
+    pub use crate::core::attribute::{Attribute, AttributeDomain, AttributeType};
     pub use crate::core::bit_coder::{
         ByteReader, ByteWriter, FunctionalByteReader, FunctionalByteWriter,
     };
     pub use crate::core::mesh::{builder::MeshBuilder, Mesh};
     pub use crate::core::shared::ConfigType;
-    pub use crate::core::shared::{DataValue, NdVector, Vector};
+    pub use crate::core::shared::{DataValue, NdVector, PointIdx, Vector};
     pub use crate::encode::{self, encode};
-    // pub use crate::decode::{self, decode};
+    pub use crate::core::attribute::ComponentDataType;
+    pub use crate::decode::{self, decode, decode_to_raw, DecodedRaw, RawAttribute};
+    pub use crate::io::gltf::draco_decoder::splice_glb_remove_draco;
 }
 
 /// Evaluation module contains the evaluation functions for the encoder and the decoder.

@@ -129,6 +129,9 @@ impl<R, const RABS_PRECISION: usize> RabsDecoder<R, RABS_PRECISION>
     }
 }
 
+// Reserved for symbol-decode precision selection (currently the
+// 12-bit precision is hardcoded in the symbol_coding wrapper).
+#[allow(dead_code)]
 const fn compute_rans_precision(num_symbols_bit_length: usize) -> usize {
     let mut precision = 12;
     if num_symbols_bit_length > 0 {
@@ -143,11 +146,16 @@ const fn compute_rans_precision(num_symbols_bit_length: usize) -> usize {
     }
 }
 
-pub(crate) struct RansSymbolDecoder<R, const NUM_SYMBOLS_BIT_LENGTH: usize, const RANS_PRECISION: usize> 
+pub(crate) struct RansSymbolDecoder<R, const NUM_SYMBOLS_BIT_LENGTH: usize, const RANS_PRECISION: usize>
     where R: ByteReader
 {
+    // Kept for parity with the encoder side's `RansSymbolEncoder`; the
+    // decoder only needs `rans_decoder` itself for actual decoding,
+    // but freq_counts is filled at construction time and may be useful
+    // for diagnostics or future precision-selection logic.
+    #[allow(dead_code)]
     freq_counts: Vec<usize>,
-    rans_decoder: RansDecoder<R::Rev, RANS_PRECISION>, 
+    rans_decoder: RansDecoder<R::Rev, RANS_PRECISION>,
 }
 
 impl<'reader, R, const NUM_SYMBOLS_BIT_LENGTH: usize, const RANS_PRECISION: usize> 

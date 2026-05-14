@@ -1,47 +1,62 @@
-mod sequential;
-mod spirale_reversi;
-use crate::core::bit_coder::ReaderErr;
-use crate::core::shared::{FaceIdx, VertexIdx}; 
-use crate::debug_expect;
+//! Connectivity decoder.
+//!
+//! Mirrors `encode/connectivity/`. Currently only the Edgebreaker Standard
+//! traversal is implemented (matching what the encoder hardcodes at
+//! `encode/connectivity/edgebreaker.rs:509`).
+
+pub(crate) mod attribute_corner_table;
+pub(crate) mod corner_table;
+pub(crate) mod edgebreaker;
+
+use crate::core::shared::VertexIdx;
 use crate::decode::header::Header;
 use crate::prelude::ByteReader;
-use crate::shared::connectivity::EdgebreakerDecoder;
 use crate::shared::header::EncoderMethod;
+
+pub(crate) use attribute_corner_table::DecoderAttributeCornerTable;
+pub(crate) use corner_table::DecoderCornerTable;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Err {
-    #[error("Sequential decoding error: {0}")]
-    SequentialError(#[from] sequential::Err),
-    
-    #[error("Spirale Reversi decoding error: {0}")]
-    SpiraleReversiError(#[from] spirale_reversi::Err),
-
-    #[error("Not enough data in stream")]
-    NotEnoughData(#[from] ReaderErr),
+    #[error("Edgebreaker decode error: {0}")]
+    Edgebreaker(#[from] edgebreaker::Err),
+    #[error("Sequential decode is not implemented")]
+    SequentialNotImplemented,
 }
 
-pub fn decode_connectivity_att<R>(reader: &mut R, header: Header) -> Result<Vec<[FaceIdx;3]>, Err>
-    where R: ByteReader,
-{
-    let connectivity = match header.encoding_method {
-        EncoderMethod::Edgebreaker => {
-            debug_expect!("Start of edgebreaker connectivity", reader);
-            let mut decoder = spirale_reversi::SpiraleReversi::new();
-            decoder.decode_connectivity(reader)?
-        },
-        EncoderMethod::Sequential => {
-            debug_expect!("Start of sequential connectivity", reader);
-            let mut decoder = sequential::Sequential;
-            decoder.decode_connectivity(reader)?
-        }
-    };
-
-    Ok(connectivity)
+/// Decoded mesh connectivity: triangle list addressing the position attribute,
+/// the corner table that produced it (for the per-attribute decode pipeline),
+/// and the corner-stack residue from the start-face-config replay (used as
+/// seed corners for the attribute-side `Traverser`).
+#[allow(dead_code)]
+pub(crate) struct DecodedConnectivity {
+    pub faces: Vec<[VertexIdx; 3]>,
+    pub num_attribute_decoders: u8,
+    pub corner_table: DecoderCornerTable,
+    /// Start corners for each connected component, in the order they were
+    /// popped from the active stack during start-face-config replay.
+    /// `Traverser::new` expects these as `corners_of_edgebreaker_traversal`.
+    pub start_corners: Vec<crate::core::shared::CornerIdx>,
+    /// Number of unique attribute vertices the encoder reports for the
+    /// position attribute (= `num_vertices` field in the bitstream). May be
+    /// less than `corner_table.num_vertices()` because S-symbol merges
+    /// remove vertices but `DecoderCornerTable` doesn't compact in-place.
+    /// This is the authoritative count for sizing the per-attribute symbol
+    /// stream.
+    pub num_position_vertices: usize,
+    /// Per-attribute corner tables, one per `num_attribute_decoders`. Index
+    /// matches the `decoder_id` field on `AttributeMeta` (the encoder
+    /// writes `(i as u8).wrapping_sub(1)` so 0xFF means "use position
+    /// table" and other values are indices into this Vec).
+    pub attribute_corner_tables: Vec<DecoderAttributeCornerTable>,
 }
 
-
-pub trait ConnectivityDecoder {
-    type Err;
-    fn decode_connectivity<R>(&mut self, reader: &mut R) -> Result<Vec<[VertexIdx; 3]>, Self::Err>
-        where R: ByteReader;
+pub(crate) fn decode_connectivity<R: ByteReader>(
+    reader: &mut R,
+    header: &Header,
+) -> Result<DecodedConnectivity, Err> {
+    match header.encoding_method {
+        EncoderMethod::Edgebreaker => edgebreaker::decode(reader).map_err(Into::into),
+        EncoderMethod::Sequential => Err(Err::SequentialNotImplemented),
+    }
 }

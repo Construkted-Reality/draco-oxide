@@ -5,7 +5,7 @@ authors = ["Re:Earth Contributors"]
 edition = "2021"
 exclude = ["benches/", "test-data/", "testdata/"]
 rust-version = "1.84"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.9"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/reearth/draco-oxide"
 repository = "https://github.com/reearth/draco-oxide"
@@ -21,8 +21,8 @@ serde = { version = "1.0", features = ["derive"] }
 schemars = "0.8"
 serde_json = "1.0"
 thiserror = "2.0.12"
-tobj = "4.0.3"
-faer = "0.22.6"
+tobj = { version = "4.0.3", optional = true }
+faer = { version = "0.22.6", optional = true }
 gltf = { version = "1.4", features = ["extensions", "guess_mime_type", "image", "import"] }
 image = { version = "0.25", features = ["webp"] }
 base64 = "0.21"
@@ -30,7 +30,15 @@ indexmap = "2.0"
 paste = "1.0"
 kiddo = "5.2.4"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# Native Draco C++ binding used to cross-check decoder output against
+# Google's reference. Builds the bundled C++ library via cxx-build, so
+# adds a few seconds to the first `cargo test` run.
+draco_decoder = "0.0.26"
+
 [features]
-default = []
+default = ["obj-loader"]
 evaluation = []
 debug_format = []
+obj-loader = ["dep:tobj"]
+mesh-eq = ["dep:faer"]

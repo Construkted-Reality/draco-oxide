@@ -1,6 +1,8 @@
 use crate::core::bit_coder::ReaderErr;
 use crate::decode::entropy::rans::RansSymbolDecoder;
-use crate::prelude::{BitReader, ByteReader};
+use crate::core::bit_coder::BitReader;
+use crate::core::buffer::LsbFirst;
+use crate::prelude::ByteReader;
 use crate::shared::entropy::SymbolEncodingMethod;
 use super::rans;
 
@@ -51,7 +53,10 @@ pub fn decode_symbols_length_coded<R>(
     // Decode the encoded data.
     let mut length_coded_decoder: RansSymbolDecoder<R, 5, 12> = RansSymbolDecoder::new(reader)?;
 
-    let mut bit_reader: BitReader<'_, R> = BitReader::spown_from(reader).unwrap(); // ToDo: Handle error
+    // Google's encoder writes the value bitstream LSB-first via
+    // `EncodeLeastSignificantBits32` — match here.
+    let mut bit_reader: BitReader<'_, R, LsbFirst> =
+        BitReader::spown_from(reader).unwrap();
     for _ in (0..num_symbols/num_components).map(|e| e * num_components) {
         // Decode the length
         let len = length_coded_decoder.decode_symbol()?;

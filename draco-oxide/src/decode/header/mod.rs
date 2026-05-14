@@ -12,8 +12,15 @@ pub enum Err {
 }
 
 pub(crate) struct Header {
+    // Header version: read from the bitstream and exposed for callers
+    // that want to gate on it. Currently no decode path branches on
+    // version (Google 1.5.7 — the latest release as of 2026 — emits
+    // 2.2 and we handle that uniformly).
+    #[allow(dead_code)]
     pub version_major: u8,
+    #[allow(dead_code)]
     pub version_minor: u8,
+    #[allow(dead_code)]
     pub encoder_type: u8,
     pub encoding_method: EncoderMethod,
     pub contains_metadata: bool,

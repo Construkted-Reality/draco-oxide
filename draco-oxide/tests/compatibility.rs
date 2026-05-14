@@ -14,7 +14,11 @@ fn en() {
     let mut writer = Vec::new();
     encode(mesh.clone(), &mut writer, encode::Config::default()).unwrap();
 
-    let mut file = std::fs::File::create(&format!("tests/outputs/{}.drc", FILE_NAME)).unwrap();
+    // Write to a temp file so the test doesn't depend on a checked-out
+    // `tests/outputs/` directory.
+    let out = std::env::temp_dir().join(format!("draco_oxide_{}.drc", FILE_NAME));
+    let mut file = std::fs::File::create(&out).unwrap();
 
     file.write_all(&writer).unwrap();
+    let _ = std::fs::remove_file(&out);
 }

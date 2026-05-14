@@ -1,5 +1,6 @@
 use super::rans;
 use crate::core::bit_coder::BitWriter;
+use crate::core::buffer::LsbFirst;
 use crate::encode::entropy::rans::RansSymbolEncoder;
 use crate::prelude::ByteWriter;
 use crate::shared::entropy::SymbolEncodingMethod;
@@ -92,7 +93,9 @@ where
     encoder.flush()?;
 
     // Append the values to the end of the target buffer.
-    let mut writer: BitWriter<_> = BitWriter::spown_from(writer);
+    // Google's decoder reads these via `DecodeLeastSignificantBits32`
+    // (`compression/entropy/symbol_decoding.cc`), so encode LSB-first.
+    let mut writer: BitWriter<_, LsbFirst> = BitWriter::spown_from(writer);
     for val in values.into_iter() {
         writer.write_bits(val);
     }

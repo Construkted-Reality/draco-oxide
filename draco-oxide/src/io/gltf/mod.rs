@@ -1,6 +1,7 @@
 //! glTF file format support with Draco compression.
 
 pub mod buffer_builder;
+pub mod draco_decoder;
 pub mod draco_extension;
 pub mod geometry_extractor;
 pub mod glb;
