@@ -185,12 +185,50 @@ where
     Ok(build_raw(&conn, &attrs))
 }
 
+/// Per-corner attribute-value-index tuple keyed by attribute count.
+/// The four small-N variants live inline so the dedup `HashMap` doesn't
+/// allocate a fresh `Vec` per corner — that loop runs once per corner
+/// of the decoded mesh, so eliminating its per-iteration allocation is
+/// the dominant win in the splice path.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum CornerTuple {
+    N1([u32; 1]),
+    N2([u32; 2]),
+    N3([u32; 3]),
+    N4([u32; 4]),
+    Big(Vec<u32>),
+}
+
+impl CornerTuple {
+    fn from_slice(s: &[u32]) -> Self {
+        match s.len() {
+            1 => Self::N1([s[0]]),
+            2 => Self::N2([s[0], s[1]]),
+            3 => Self::N3([s[0], s[1], s[2]]),
+            4 => Self::N4([s[0], s[1], s[2], s[3]]),
+            _ => Self::Big(s.to_vec()),
+        }
+    }
+
+    #[inline]
+    fn get(&self, i: usize) -> u32 {
+        match self {
+            Self::N1(a) => a[i],
+            Self::N2(a) => a[i],
+            Self::N3(a) => a[i],
+            Self::N4(a) => a[i],
+            Self::Big(v) => v[i],
+        }
+    }
+}
+
 fn build_raw(
     conn: &connectivity::DecodedConnectivity,
     attrs: &[(crate::core::attribute::Attribute, Option<u8>)],
 ) -> DecodedRaw {
     use crate::core::attribute::AttributeType;
     use crate::core::corner_table::GenericCornerTable;
+    use std::collections::hash_map::Entry;
     use std::collections::HashMap;
 
     let num_faces = conn.faces.len();
@@ -201,13 +239,15 @@ fn build_raw(
     // over visited universal vertices, and faces only reference visited
     // ones, so the sorted set of face vertex IDs gives the right ranking.
     let sorted_pos_ids: Vec<usize> = {
-        let mut s = std::collections::BTreeSet::new();
+        let mut all: Vec<usize> = Vec::with_capacity(num_corners);
         for f in &conn.faces {
             for v in f {
-                s.insert(usize::from(*v));
+                all.push(usize::from(*v));
             }
         }
-        s.into_iter().collect()
+        all.sort_unstable();
+        all.dedup();
+        all
     };
     let max_universal_id = sorted_pos_ids.last().copied().unwrap_or(0);
     let mut universal_to_pos_value: Vec<u32> = vec![u32::MAX; max_universal_id + 1];
@@ -215,58 +255,57 @@ fn build_raw(
         universal_to_pos_value[id] = rank as u32;
     }
 
-    // Per-attribute per-corner value-index lookup. Position attributes
-    // (decoder_id = None) go via universal_to_pos_value; others use
-    // their attribute corner table's corner_to_vertex map directly.
-    let per_corner_indices: Vec<Vec<u32>> = attrs
-        .iter()
-        .map(|(_, decoder_id)| {
-            let mut v = vec![0u32; num_corners];
-            // `decoder_id = None` or an out-of-range value (typically 0xFF
-            // for the first attribute = position) means "use the universal
-            // corner table". Matches `decode_one_attribute` upstream.
-            let attr_table_idx = decoder_id
-                .filter(|idx| (*idx as usize) < conn.attribute_corner_tables.len());
-            match attr_table_idx {
-                None => {
-                    for c in 0..num_corners {
-                        let universal_v =
-                            usize::from(conn.corner_table.vertex_idx(CornerIdx::from(c)));
-                        v[c] = *universal_to_pos_value
-                            .get(universal_v)
-                            .filter(|&&r| r != u32::MAX)
-                            .unwrap_or(&0);
-                    }
-                }
-                Some(idx) => {
-                    let attr_table = &conn.attribute_corner_tables[idx as usize];
-                    for c in 0..num_corners {
-                        v[c] = attr_table.corner_to_vertex[c] as u32;
-                    }
+    // Per-corner attribute-value-index table, stored flat so each
+    // corner's full tuple is a contiguous `n_attrs`-wide stride
+    // (cache-friendly for the dedup loop below). Position attributes
+    // (decoder_id = None or out-of-range) go via universal_to_pos_value;
+    // others use their attribute corner table's corner_to_vertex map
+    // directly.
+    let n_attrs = attrs.len();
+    let mut per_corner_indices: Vec<u32> = vec![0; num_corners * n_attrs];
+    for (a, (_, decoder_id)) in attrs.iter().enumerate() {
+        let attr_table_idx = decoder_id
+            .filter(|idx| (*idx as usize) < conn.attribute_corner_tables.len());
+        match attr_table_idx {
+            None => {
+                for c in 0..num_corners {
+                    let universal_v =
+                        usize::from(conn.corner_table.vertex_idx(CornerIdx::from(c)));
+                    let value_idx = universal_to_pos_value
+                        .get(universal_v)
+                        .copied()
+                        .filter(|&r| r != u32::MAX)
+                        .unwrap_or(0);
+                    per_corner_indices[c * n_attrs + a] = value_idx;
                 }
             }
-            v
-        })
-        .collect();
+            Some(idx) => {
+                let attr_table = &conn.attribute_corner_tables[idx as usize];
+                for c in 0..num_corners {
+                    per_corner_indices[c * n_attrs + a] =
+                        attr_table.corner_to_vertex[c] as u32;
+                }
+            }
+        }
+    }
 
-    // Dedup tuples (per-attribute value indices per corner) → unified
-    // output vertex IDs. Then emit sequential indices.
-    let n_attrs = attrs.len();
-    let mut tuple_to_output: HashMap<Vec<u32>, u32> = HashMap::with_capacity(num_corners);
-    let mut tuples: Vec<Vec<u32>> = Vec::new();
+    // Dedup tuples → unified output vertex IDs. `Entry::or_insert_with`
+    // gives one hash lookup per corner; `CornerTuple::from_slice` reads
+    // straight from the flat per-corner table, no per-corner alloc for
+    // n_attrs ≤ 4 (the universal case).
+    let mut tuple_to_output: HashMap<CornerTuple, u32> = HashMap::with_capacity(num_corners);
+    let mut tuples: Vec<CornerTuple> = Vec::new();
     let mut indices: Vec<u32> = Vec::with_capacity(num_corners);
     for c in 0..num_corners {
-        let mut tuple: Vec<u32> = Vec::with_capacity(n_attrs);
-        for a in 0..n_attrs {
-            tuple.push(per_corner_indices[a][c]);
-        }
-        let id = if let Some(&id) = tuple_to_output.get(&tuple) {
-            id
-        } else {
-            let id = tuples.len() as u32;
-            tuple_to_output.insert(tuple.clone(), id);
-            tuples.push(tuple);
-            id
+        let key = CornerTuple::from_slice(&per_corner_indices[c * n_attrs..(c + 1) * n_attrs]);
+        let id = match tuple_to_output.entry(key.clone()) {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(e) => {
+                let id = tuples.len() as u32;
+                tuples.push(key);
+                e.insert(id);
+                id
+            }
         };
         indices.push(id);
     }
@@ -305,7 +344,7 @@ fn build_raw(
         let offset = data.len();
         data.reserve(vertex_count as usize * elem_size);
         for tuple in &tuples {
-            let value_idx = tuple[a_idx] as usize;
+            let value_idx = tuple.get(a_idx) as usize;
             let start = value_idx * elem_size;
             let end = start + elem_size;
             // Guard: if the decoder produced fewer values than the
@@ -314,7 +353,8 @@ fn build_raw(
             if end <= src_bytes.len() {
                 data.extend_from_slice(&src_bytes[start..end]);
             } else {
-                data.extend(std::iter::repeat(0u8).take(elem_size));
+                let new_len = data.len() + elem_size;
+                data.resize(new_len, 0);
             }
         }
         let byte_length = vertex_count as usize * elem_size;
