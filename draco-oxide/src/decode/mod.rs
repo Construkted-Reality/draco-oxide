@@ -2,11 +2,11 @@ use crate::core::attribute::{AttributeType, ComponentDataType};
 use crate::core::shared::{CornerIdx, PointIdx};
 use crate::prelude::{ByteReader, ConfigType, Mesh};
 
+mod attribute;
+mod connectivity;
+mod entropy;
 mod header;
 mod metadata;
-mod connectivity;
-mod attribute;
-mod entropy;
 
 /// Decodes a Draco bitstream into a `Mesh`. Discards any non-fatal
 /// warnings the decoder produced — use [`decode_with_warnings`] when
@@ -336,13 +336,12 @@ fn build_raw(
     let n_attrs = attrs.len();
     let mut per_corner_indices: Vec<u32> = vec![0; num_corners * n_attrs];
     for (a, (_, decoder_id)) in attrs.iter().enumerate() {
-        let attr_table_idx = decoder_id
-            .filter(|idx| (*idx as usize) < conn.attribute_corner_tables.len());
+        let attr_table_idx =
+            decoder_id.filter(|idx| (*idx as usize) < conn.attribute_corner_tables.len());
         match attr_table_idx {
             None => {
                 for c in 0..num_corners {
-                    let universal_v =
-                        usize::from(conn.corner_table.vertex_idx(CornerIdx::from(c)));
+                    let universal_v = usize::from(conn.corner_table.vertex_idx(CornerIdx::from(c)));
                     let value_idx = universal_to_pos_value
                         .get(universal_v)
                         .copied()
@@ -357,8 +356,7 @@ fn build_raw(
             Some(idx) => {
                 let attr_table = &conn.attribute_corner_tables[idx as usize];
                 for c in 0..num_corners {
-                    per_corner_indices[c * n_attrs + a] =
-                        attr_table.corner_to_vertex[c] as u32;
+                    per_corner_indices[c * n_attrs + a] = attr_table.corner_to_vertex[c] as u32;
                 }
             }
         }

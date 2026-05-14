@@ -1,7 +1,6 @@
-use crate::prelude::ByteReader;
 use crate::core::bit_coder::ReaderErr;
+use crate::prelude::ByteReader;
 use crate::shared::header::EncoderMethod;
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum Err {
@@ -33,11 +32,12 @@ where
     W: ByteReader,
 {
     // Read the draco string
-    if !(0..5).map(|_| reader.read_u8().unwrap() as char ) // ToDo: remove unwrap, handle error properly
-            .zip("DRACO".chars())
-            .all(|(a, b)| a == b)
+    if !(0..5)
+        .map(|_| reader.read_u8().unwrap() as char) // ToDo: remove unwrap, handle error properly
+        .zip("DRACO".chars())
+        .all(|(a, b)| a == b)
     {
-        return Err(Err::NotADracoFile)
+        return Err(Err::NotADracoFile);
     };
 
     // Read the version
@@ -54,13 +54,11 @@ where
 
     let contains_metadata = flags & METADATA_FLAG_MASK != 0;
 
-    Ok (
-        Header {
-            version_major,
-            version_minor,
-            encoder_type,
-            encoding_method,
-            contains_metadata,
-        }
-    )
+    Ok(Header {
+        version_major,
+        version_minor,
+        encoder_type,
+        encoding_method,
+        contains_metadata,
+    })
 }

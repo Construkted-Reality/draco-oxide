@@ -177,8 +177,16 @@ pub(crate) fn octahedral_transform_f32(normal: [f32; 3]) -> [f32; 2] {
     let mut u = normal[1] / abs_sum;
     let mut v = normal[2] / abs_sum;
     if normal[0] < 0.0 {
-        let u_out = if u < 0.0 { v.abs() - 1.0 } else { 1.0 - v.abs() };
-        let v_out = if v < 0.0 { u.abs() - 1.0 } else { 1.0 - u.abs() };
+        let u_out = if u < 0.0 {
+            v.abs() - 1.0
+        } else {
+            1.0 - v.abs()
+        };
+        let v_out = if v < 0.0 {
+            u.abs() - 1.0
+        } else {
+            1.0 - u.abs()
+        };
         u = u_out;
         v = v_out;
     }

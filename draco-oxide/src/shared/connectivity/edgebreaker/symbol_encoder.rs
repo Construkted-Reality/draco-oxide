@@ -114,8 +114,7 @@ mod tests {
         }
 
         let mut iter = buf.into_iter();
-        let mut reader: BitReader<'_, _, LsbFirst> =
-            BitReader::spown_from(&mut iter).unwrap();
+        let mut reader: BitReader<'_, _, LsbFirst> = BitReader::spown_from(&mut iter).unwrap();
         let decoded: Vec<Symbol> = (0..symbols.len())
             .map(|_| CrLight::decode_symbol(&mut reader))
             .collect();
@@ -134,9 +133,18 @@ mod tests {
     #[test]
     fn cr_light_mixed_sequence_round_trips() {
         round_trip(&[
-            Symbol::C, Symbol::R, Symbol::C, Symbol::E,
-            Symbol::L, Symbol::S, Symbol::C, Symbol::C,
-            Symbol::R, Symbol::L, Symbol::E, Symbol::S,
+            Symbol::C,
+            Symbol::R,
+            Symbol::C,
+            Symbol::E,
+            Symbol::L,
+            Symbol::S,
+            Symbol::C,
+            Symbol::C,
+            Symbol::R,
+            Symbol::L,
+            Symbol::E,
+            Symbol::S,
         ]);
     }
 
@@ -144,8 +152,14 @@ mod tests {
     fn cr_light_long_sequence_round_trips() {
         // Force multi-byte boundaries.
         let pattern = [
-            Symbol::C, Symbol::C, Symbol::R, Symbol::L,
-            Symbol::S, Symbol::E, Symbol::C, Symbol::R,
+            Symbol::C,
+            Symbol::C,
+            Symbol::R,
+            Symbol::L,
+            Symbol::S,
+            Symbol::E,
+            Symbol::C,
+            Symbol::R,
         ];
         let long: Vec<Symbol> = pattern.iter().cloned().cycle().take(200).collect();
         round_trip(&long);

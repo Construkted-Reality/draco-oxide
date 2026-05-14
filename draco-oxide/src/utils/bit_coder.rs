@@ -75,7 +75,10 @@ mod tests {
         let bytes: Vec<u8> = Vec::new();
         let mut reader = bytes.into_iter();
         let res = read_byte_buffer(&mut reader, u32::MAX as usize);
-        assert!(res.is_err(), "should error rather than allocate huge buffer");
+        assert!(
+            res.is_err(),
+            "should error rather than allocate huge buffer"
+        );
     }
 
     #[test]

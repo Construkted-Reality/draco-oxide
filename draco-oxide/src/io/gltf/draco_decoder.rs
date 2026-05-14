@@ -54,7 +54,10 @@ pub fn decode_glb(input: &[u8]) -> Result<Vec<DecodedPrimitive>, Error> {
 /// Decode every Draco-compressed primitive given pre-parsed glTF JSON
 /// + the binary buffer (bufferView byte source). Useful when the caller
 /// already has the GLB unpacked or when reading from non-GLB sources.
-pub fn decode_with_buffer(json: &Value, binary_buffer: &[u8]) -> Result<Vec<DecodedPrimitive>, Error> {
+pub fn decode_with_buffer(
+    json: &Value,
+    binary_buffer: &[u8],
+) -> Result<Vec<DecodedPrimitive>, Error> {
     let mut out = Vec::new();
     let meshes = match json.get("meshes").and_then(|m| m.as_array()) {
         Some(m) => m,
@@ -77,7 +80,12 @@ pub fn decode_with_buffer(json: &Value, binary_buffer: &[u8]) -> Result<Vec<Deco
                 .and_then(|v| v.as_u64())
                 .ok_or(Error::MissingField(
                     "bufferView",
-                    format!("meshes[{}].primitives[{}].extensions.{}", mesh_idx, primitive_idx, draco_extension::EXTENSION_NAME),
+                    format!(
+                        "meshes[{}].primitives[{}].extensions.{}",
+                        mesh_idx,
+                        primitive_idx,
+                        draco_extension::EXTENSION_NAME
+                    ),
                 ))? as usize;
 
             let bytes = extract_buffer_view(json, binary_buffer, buffer_view_idx)?;
@@ -166,14 +174,15 @@ pub fn splice_glb_remove_draco(input: &[u8]) -> Result<Vec<u8>, Error> {
                 })
                 .unwrap_or_default();
 
-            let ext_bv_index = ext
-                .get("bufferView")
-                .and_then(|v| v.as_u64())
-                .ok_or(Error::MissingField(
-                    "bufferView",
-                    format!("primitive.extensions.{}", draco_extension::EXTENSION_NAME),
-                ))? as usize;
-            let (encoded_offset, encoded_len) = read_buffer_view_range(&buffer_views, ext_bv_index)?;
+            let ext_bv_index =
+                ext.get("bufferView")
+                    .and_then(|v| v.as_u64())
+                    .ok_or(Error::MissingField(
+                        "bufferView",
+                        format!("primitive.extensions.{}", draco_extension::EXTENSION_NAME),
+                    ))? as usize;
+            let (encoded_offset, encoded_len) =
+                read_buffer_view_range(&buffer_views, ext_bv_index)?;
             if encoded_offset + encoded_len > bin_bytes.len() {
                 return Err(Error::BufferViewOutOfRange(ext_bv_index));
             }
@@ -245,7 +254,10 @@ pub fn splice_glb_remove_draco(input: &[u8]) -> Result<Vec<u8>, Error> {
                 }));
                 let component_type = attr.component_type.to_gltf_component_type().unwrap_or(5126);
                 let accessor_type = accessor_type_from_dim(attr.dim);
-                if let Some(acc) = accessors.get_mut(existing_acc_idx).and_then(|v| v.as_object_mut()) {
+                if let Some(acc) = accessors
+                    .get_mut(existing_acc_idx)
+                    .and_then(|v| v.as_object_mut())
+                {
                     acc.insert("bufferView".into(), json!(bv_index));
                     acc.insert("byteOffset".into(), json!(0));
                     acc.insert("componentType".into(), json!(component_type));
@@ -253,7 +265,9 @@ pub fn splice_glb_remove_draco(input: &[u8]) -> Result<Vec<u8>, Error> {
                     acc.insert("type".into(), json!(accessor_type));
                     if gltf_name == "POSITION" && attr.component_type == ComponentDataType::F32 {
                         let pos_bytes = &raw.data[attr.offset..attr.offset + attr.byte_length];
-                        if let Some((mins, maxs)) = compute_position_min_max(pos_bytes, attr.dim as usize) {
+                        if let Some((mins, maxs)) =
+                            compute_position_min_max(pos_bytes, attr.dim as usize)
+                        {
                             acc.insert("min".into(), json!(mins));
                             acc.insert("max".into(), json!(maxs));
                         }
@@ -316,11 +330,10 @@ fn json_has_draco_primitive(json: &Value) -> bool {
     })
 }
 
-fn read_buffer_view_range(
-    buffer_views: &[Value],
-    idx: usize,
-) -> Result<(usize, usize), Error> {
-    let bv = buffer_views.get(idx).ok_or(Error::BufferViewOutOfRange(idx))?;
+fn read_buffer_view_range(buffer_views: &[Value], idx: usize) -> Result<(usize, usize), Error> {
+    let bv = buffer_views
+        .get(idx)
+        .ok_or(Error::BufferViewOutOfRange(idx))?;
     let byte_offset = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let byte_length = bv.get("byteLength").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     Ok((byte_offset, byte_length))
@@ -384,12 +397,19 @@ fn compute_position_min_max(bytes: &[u8], dim: usize) -> Option<(Vec<f32>, Vec<f
 }
 
 /// Slice the bytes for a specific bufferView out of the binary buffer.
-fn extract_buffer_view(json: &Value, binary_buffer: &[u8], view_idx: usize) -> Result<Vec<u8>, Error> {
+fn extract_buffer_view(
+    json: &Value,
+    binary_buffer: &[u8],
+    view_idx: usize,
+) -> Result<Vec<u8>, Error> {
     let view = json
         .get("bufferViews")
         .and_then(|v| v.as_array())
         .and_then(|v| v.get(view_idx))
-        .ok_or(Error::MissingField("bufferViews[idx]", format!("bufferViews[{}]", view_idx)))?;
+        .ok_or(Error::MissingField(
+            "bufferViews[idx]",
+            format!("bufferViews[{}]", view_idx),
+        ))?;
     let buffer = view.get("buffer").and_then(|b| b.as_u64()).unwrap_or(0) as usize;
     if buffer != 0 {
         return Err(Error::NonZeroBuffer(view_idx, buffer));
@@ -398,9 +418,13 @@ fn extract_buffer_view(json: &Value, binary_buffer: &[u8], view_idx: usize) -> R
     let length = view
         .get("byteLength")
         .and_then(|l| l.as_u64())
-        .ok_or(Error::MissingField("byteLength", format!("bufferViews[{}]", view_idx)))?
-        as usize;
-    let end = offset.checked_add(length).ok_or(Error::BufferViewOutOfRange(view_idx))?;
+        .ok_or(Error::MissingField(
+            "byteLength",
+            format!("bufferViews[{}]", view_idx),
+        ))? as usize;
+    let end = offset
+        .checked_add(length)
+        .ok_or(Error::BufferViewOutOfRange(view_idx))?;
     if end > binary_buffer.len() {
         return Err(Error::BufferViewOutOfRange(view_idx));
     }
@@ -419,8 +443,7 @@ mod tests {
     /// extension wrapping, exercising `decode_glb` end-to-end.
     #[test]
     fn glb_roundtrip_via_transcoder() {
-        let in_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/data/Duck/Duck.glb");
+        let in_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/Duck/Duck.glb");
         // Skip if the bundled Duck fixture isn't present.
         if !in_path.exists() {
             eprintln!("[SKIP] {} missing", in_path.display());
@@ -443,14 +466,19 @@ mod tests {
             assert!(
                 p.mesh.get_faces().len() > 0,
                 "primitive {}/{} has 0 faces",
-                p.mesh_idx, p.primitive_idx
+                p.mesh_idx,
+                p.primitive_idx
             );
             let has_pos = p
                 .mesh
                 .get_attributes()
                 .iter()
                 .any(|a| a.get_attribute_type() == crate::prelude::AttributeType::Position);
-            assert!(has_pos, "primitive {}/{} missing positions", p.mesh_idx, p.primitive_idx);
+            assert!(
+                has_pos,
+                "primitive {}/{} missing positions",
+                p.mesh_idx, p.primitive_idx
+            );
         }
         eprintln!(
             "decoded {} Draco primitives from glb-roundtripped Duck",
@@ -474,8 +502,7 @@ mod tests {
     /// vanilla glTF and the extension is gone.
     #[test]
     fn splice_glb_roundtrip_via_transcoder() {
-        let in_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/data/Duck/Duck.glb");
+        let in_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/Duck/Duck.glb");
         if !in_path.exists() {
             eprintln!("[SKIP] {} missing", in_path.display());
             return;
@@ -494,7 +521,9 @@ mod tests {
             !json
                 .get("extensionsRequired")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().any(|s| s.as_str() == Some(draco_extension::EXTENSION_NAME)))
+                .map(|a| a
+                    .iter()
+                    .any(|s| s.as_str() == Some(draco_extension::EXTENSION_NAME)))
                 .unwrap_or(false),
             "extensionsRequired still references {}",
             draco_extension::EXTENSION_NAME
@@ -503,7 +532,9 @@ mod tests {
             !json
                 .get("extensionsUsed")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().any(|s| s.as_str() == Some(draco_extension::EXTENSION_NAME)))
+                .map(|a| a
+                    .iter()
+                    .any(|s| s.as_str() == Some(draco_extension::EXTENSION_NAME)))
                 .unwrap_or(false),
             "extensionsUsed still references {}",
             draco_extension::EXTENSION_NAME
@@ -538,8 +569,7 @@ mod tests {
     ///    one `count`.
     #[test]
     fn splice_emits_consistent_accessor_counts() {
-        let in_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/data/Duck/Duck.glb");
+        let in_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/Duck/Duck.glb");
         if !in_path.exists() {
             eprintln!("[SKIP] {} missing", in_path.display());
             return;
@@ -587,7 +617,10 @@ mod tests {
             }
         };
 
-        let meshes = json.get("meshes").and_then(|v| v.as_array()).expect("meshes");
+        let meshes = json
+            .get("meshes")
+            .and_then(|v| v.as_array())
+            .expect("meshes");
         let mut checked_primitives = 0usize;
         for mesh in meshes {
             let Some(prims) = mesh.get("primitives").and_then(|v| v.as_array()) else {
@@ -629,9 +662,13 @@ mod tests {
                     let expected = count * component_size(ct) * type_dim(ty);
                     let actual = bv_len(bv_idx);
                     assert_eq!(
-                        actual, expected,
+                        actual,
+                        expected,
                         "accessor {} bufferView byteLength {} != count {} * elem_size {}",
-                        acc_idx, actual, count, expected / count.max(1)
+                        acc_idx,
+                        actual,
+                        count,
+                        expected / count.max(1)
                     );
                 }
 
@@ -641,7 +678,10 @@ mod tests {
                 };
                 let idx_acc = &accessors[idx_acc_n as usize];
                 let idx_count = idx_acc.get("count").and_then(|v| v.as_u64()).unwrap() as usize;
-                let idx_ct = idx_acc.get("componentType").and_then(|v| v.as_u64()).unwrap();
+                let idx_ct = idx_acc
+                    .get("componentType")
+                    .and_then(|v| v.as_u64())
+                    .unwrap();
                 let idx_bv = idx_acc.get("bufferView").and_then(|v| v.as_u64()).unwrap() as usize;
                 let bv = &buffer_views[idx_bv];
                 let bv_off = bv.get("byteOffset").and_then(|v| v.as_u64()).unwrap() as usize;
@@ -652,13 +692,24 @@ mod tests {
                     assert_eq!(bytes.len(), idx_count * 2);
                     for chunk in bytes.chunks_exact(2) {
                         let i = u16::from_le_bytes([chunk[0], chunk[1]]) as usize;
-                        assert!(i < unified_usize, "index {} >= vertex_count {}", i, unified_usize);
+                        assert!(
+                            i < unified_usize,
+                            "index {} >= vertex_count {}",
+                            i,
+                            unified_usize
+                        );
                     }
                 } else if idx_ct == 5125 {
                     assert_eq!(bytes.len(), idx_count * 4);
                     for chunk in bytes.chunks_exact(4) {
-                        let i = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
-                        assert!(i < unified_usize, "index {} >= vertex_count {}", i, unified_usize);
+                        let i =
+                            u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
+                        assert!(
+                            i < unified_usize,
+                            "index {} >= vertex_count {}",
+                            i,
+                            unified_usize
+                        );
                     }
                 } else {
                     panic!("unexpected index componentType {}", idx_ct);
@@ -666,6 +717,9 @@ mod tests {
             }
         }
 
-        assert!(checked_primitives > 0, "no primitives with attributes were checked");
+        assert!(
+            checked_primitives > 0,
+            "no primitives with attributes were checked"
+        );
     }
 }

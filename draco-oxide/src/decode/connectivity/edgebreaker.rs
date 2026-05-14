@@ -17,8 +17,8 @@ use crate::core::corner_table::GenericCornerTable;
 use crate::core::shared::{CornerIdx, VertexIdx};
 use crate::decode::entropy::rans::{self as rans_dec, RabsDecoder};
 use crate::prelude::ByteReader;
-use crate::shared::connectivity::edgebreaker::{self, EdgebreakerKind, Orientation};
 use crate::shared::connectivity::edgebreaker::symbol_encoder::{CrLight, Symbol, SymbolEncoder};
+use crate::shared::connectivity::edgebreaker::{self, EdgebreakerKind, Orientation};
 use crate::utils::bit_coder::leb128_read;
 
 use super::corner_table::DecoderCornerTable;
@@ -221,18 +221,13 @@ fn compute_seam_bit_count(
 
 /// RABS-decode `count` bits from `buf` (zero-prob `prob_zero`), then
 /// reverse them so they're in encoder-iteration (= decoder face) order.
-fn decode_rabs_seam_bits(
-    prob_zero: u8,
-    buf: &[u8],
-    count: usize,
-) -> Result<Vec<bool>, Err> {
+fn decode_rabs_seam_bits(prob_zero: u8, buf: &[u8], count: usize) -> Result<Vec<bool>, Err> {
     if count == 0 || buf.is_empty() {
         return Ok(vec![false; count]);
     }
     let buf_len = buf.len();
     let mut iter = buf.to_vec().into_iter();
-    let mut rabs: RabsDecoder<_> =
-        RabsDecoder::new(&mut iter, buf_len, prob_zero as usize, None)?;
+    let mut rabs: RabsDecoder<_> = RabsDecoder::new(&mut iter, buf_len, prob_zero as usize, None)?;
     let mut bits = Vec::with_capacity(count);
     for _ in 0..count {
         bits.push(rabs.read().unwrap_or(0) != 0);
@@ -445,12 +440,13 @@ fn replay_symbols(
     // See doc above `TopologySplit` for the encoder/decoder index dance.
     let mut splits_by_merging: HashMap<usize, Vec<(usize, Orientation)>> = HashMap::new();
     for split in topology_splits {
-        let decoder_split_id = num_symbols
-            .checked_sub(split.split_symbol_idx + 1)
-            .ok_or(Err::FaceCountMismatch {
-                decoded: 0,
-                expected: 0,
-            })?;
+        let decoder_split_id =
+            num_symbols
+                .checked_sub(split.split_symbol_idx + 1)
+                .ok_or(Err::FaceCountMismatch {
+                    decoded: 0,
+                    expected: 0,
+                })?;
         splits_by_merging
             .entry(split.merging_symbol_idx)
             .or_default()
@@ -490,8 +486,7 @@ fn replay_symbols(
                     }
                     valence_cursors[ctx] = cursor - 1;
                     let raw = contexts[ctx][cursor - 1];
-                    symbol_id_to_topology(raw)
-                        .ok_or(Err::InvalidValenceSymbolId(raw))?
+                    symbol_id_to_topology(raw).ok_or(Err::InvalidValenceSymbolId(raw))?
                 } else {
                     // First Valence symbol must be E (no active context yet).
                     // See `MeshEdgebreakerTraversalValenceDecoder::DecodeSymbol`.
@@ -528,8 +523,7 @@ fn replay_symbols(
             Symbol::C => {
                 let corner_a = *active_stack.last().ok_or(Err::EmptyActiveStack)?;
                 let vertex_x = ct.vertex_idx(next_corner(corner_a));
-                let corner_b =
-                    next_corner(ct.left_most_corner(vertex_x));
+                let corner_b = next_corner(ct.left_most_corner(vertex_x));
 
                 ct.set_opposite(corner_a, CornerIdx::from(usize::from(base) + 1));
                 ct.set_opposite(corner_b, CornerIdx::from(usize::from(base) + 2));
@@ -582,10 +576,7 @@ fn replay_symbols(
                 ct.map_corner_to_vertex(corner_r, vertex_r);
                 ct.set_left_most_corner(vertex_r, corner_r);
 
-                ct.map_corner_to_vertex(
-                    base,
-                    ct.vertex_idx(next_corner(corner_a)),
-                );
+                ct.map_corner_to_vertex(base, ct.vertex_idx(next_corner(corner_a)));
 
                 *active_stack.last_mut().unwrap() = base;
             }
@@ -594,9 +585,7 @@ fn replay_symbols(
                 // resolving here, push its stored corner so it becomes the
                 // new top — this is what corner_a then reads.
                 let corner_b = active_stack.pop().ok_or(Err::EmptyActiveStack)?;
-                if let Some(stored) =
-                    topology_split_active_corners.remove(&decoder_sym_id)
-                {
+                if let Some(stored) = topology_split_active_corners.remove(&decoder_sym_id) {
                     active_stack.push(stored);
                 }
                 let corner_a = *active_stack.last().ok_or(Err::EmptyActiveStack)?;
@@ -707,8 +696,7 @@ fn replay_symbols(
                 }
             }
             let active_valence = vertex_valences[v_n];
-            let clamped =
-                active_valence.clamp(MIN_VALENCE as i32, MAX_VALENCE as i32) as usize;
+            let clamped = active_valence.clamp(MIN_VALENCE as i32, MAX_VALENCE as i32) as usize;
             active_context = Some(clamped - MIN_VALENCE);
         }
     }
@@ -720,12 +708,8 @@ fn replay_symbols(
     if !active_stack.is_empty() {
         let buf_len = start_face_buf.len();
         let mut iter = start_face_buf.into_iter();
-        let mut rabs: RabsDecoder<_> = RabsDecoder::new(
-            &mut iter,
-            buf_len,
-            start_face_prob_zero as usize,
-            None,
-        )?;
+        let mut rabs: RabsDecoder<_> =
+            RabsDecoder::new(&mut iter, buf_len, start_face_prob_zero as usize, None)?;
 
         while let Some(corner) = active_stack.pop() {
             let interior = rabs.read()? != 0;

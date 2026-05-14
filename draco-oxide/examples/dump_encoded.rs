@@ -6,10 +6,14 @@
 //!     cargo run --example dump_encoded -- path/to/input.obj
 
 use draco_oxide::io::obj::load_obj;
-use draco_oxide::prelude::{encode, AttributeDomain, AttributeType, MeshBuilder, NdVector, PointIdx};
+use draco_oxide::prelude::{
+    encode, AttributeDomain, AttributeType, MeshBuilder, NdVector, PointIdx,
+};
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: dump_encoded <input.obj>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: dump_encoded <input.obj>");
     let mesh = load_obj(&path).expect("load obj");
 
     // Strip non-position attributes for comparable output to Google's

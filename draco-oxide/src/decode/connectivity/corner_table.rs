@@ -221,7 +221,9 @@ impl DecoderCornerTable {
                 break;
             }
             let nxt = <Self as GenericCornerTable>::next(self, c);
-            maybe_c = self.opposite(nxt).map(|opp| <Self as GenericCornerTable>::next(self, opp));
+            maybe_c = self
+                .opposite(nxt)
+                .map(|opp| <Self as GenericCornerTable>::next(self, opp));
             if let Some(n) = maybe_c {
                 if n == first {
                     break;

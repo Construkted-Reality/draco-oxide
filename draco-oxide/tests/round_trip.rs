@@ -51,8 +51,7 @@ fn decode_with_warnings_clean_decode_has_empty_warnings() {
     encode::encode(original, &mut buf, encode::Config::default()).expect("encode");
 
     let mut reader_a = buf.clone().into_iter();
-    let mesh_via_decode =
-        decode::decode(&mut reader_a, decode::Config::default()).expect("decode");
+    let mesh_via_decode = decode::decode(&mut reader_a, decode::Config::default()).expect("decode");
 
     let mut reader_b = buf.into_iter();
     let (mesh_via_warnings, warnings) =
@@ -154,7 +153,11 @@ fn colors_round_trip_tetrahedron() {
         }
     }
     eprintln!("self-roundtrip colors max nearest L2 = {:.6}", max_err);
-    assert!(max_err < 1e-2, "color round-trip max L2 {} too high", max_err);
+    assert!(
+        max_err < 1e-2,
+        "color round-trip max L2 {} too high",
+        max_err
+    );
 }
 
 /// Self round-trip with all attributes (positions + normals + UVs) on
@@ -267,7 +270,11 @@ fn assert_positions_round_trip(original: draco_oxide::prelude::Mesh, l_inf_tol: 
     let mut reader = buf.into_iter();
     let decoded = decode::decode(&mut reader, decode::Config::default()).expect("decode");
 
-    assert_eq!(decoded.get_faces().len(), original_faces.len(), "face count");
+    assert_eq!(
+        decoded.get_faces().len(),
+        original_faces.len(),
+        "face count"
+    );
     let pos = decoded
         .get_attributes()
         .iter()
@@ -407,7 +414,6 @@ fn assert_decode_reaches_attribute_stub(path: &str) {
     let _ = err;
 }
 
-
 #[test]
 fn connectivity_decodes_sphere() {
     assert_decode_reaches_attribute_stub(SPHERE_PATH);
@@ -474,8 +480,7 @@ fn decode_to_raw_handles_duplicate_position_values() {
     let mut buf = Vec::new();
     encode::encode(mesh, &mut buf, encode::Config::default()).expect("encode");
     let mut reader = buf.into_iter();
-    let raw =
-        decode::decode_to_raw(&mut reader, decode::Config::default()).expect("decode_to_raw");
+    let raw = decode::decode_to_raw(&mut reader, decode::Config::default()).expect("decode_to_raw");
 
     // Parse raw bytes.
     use draco_oxide::prelude::ComponentDataType;
@@ -527,7 +532,10 @@ fn decode_to_raw_handles_duplicate_position_values() {
     let nearest = |p: &[f32; 3]| -> Vec<usize> {
         let mut hits = Vec::new();
         for (i, o) in original_positions.iter().enumerate() {
-            let d = (p[0] - o[0]).abs().max((p[1] - o[1]).abs()).max((p[2] - o[2]).abs());
+            let d = (p[0] - o[0])
+                .abs()
+                .max((p[1] - o[1]).abs())
+                .max((p[2] - o[2]).abs());
             if d < tol {
                 hits.push(i);
             }
@@ -554,7 +562,10 @@ fn decode_to_raw_handles_duplicate_position_values() {
         assert!(
             !h0.is_empty() && !h1.is_empty() && !h2.is_empty(),
             "decoded face {} has a vertex not in the original mesh: {:?} {:?} {:?}",
-            f_idx, p0, p1, p2
+            f_idx,
+            p0,
+            p1,
+            p2
         );
         // At least one combination of (h0, h1, h2) must form an original
         // face (sorted).
@@ -598,12 +609,10 @@ fn positions_round_trip_bunny() {
     let original = load_obj(BUNNY_PATH).expect("load bunny.obj");
 
     let mut buf = Vec::new();
-    encode::encode(original.clone(), &mut buf, encode::Config::default())
-        .expect("encode bunny");
+    encode::encode(original.clone(), &mut buf, encode::Config::default()).expect("encode bunny");
 
     let mut reader = buf.into_iter();
-    let decoded = decode::decode(&mut reader, decode::Config::default())
-        .expect("decode bunny");
+    let decoded = decode::decode(&mut reader, decode::Config::default()).expect("decode bunny");
 
     assert_eq!(
         original.get_faces().len(),
@@ -676,13 +685,13 @@ fn with_normals_round_trip_sphere() {
         assert!(
             (mag - 1.0).abs() < 0.05,
             "self-roundtrip normal[{}] not unit length: mag={}",
-            i, mag
+            i,
+            mag
         );
         let nearest = original_normals
             .iter()
             .map(|o| {
-                ((dec[0] - o[0]).powi(2) + (dec[1] - o[1]).powi(2) + (dec[2] - o[2]).powi(2))
-                    .sqrt()
+                ((dec[0] - o[0]).powi(2) + (dec[1] - o[1]).powi(2) + (dec[2] - o[2]).powi(2)).sqrt()
             })
             .fold(f32::INFINITY, f32::min);
         if nearest > max_err {
@@ -709,12 +718,10 @@ fn full_attributes_round_trip_sphere() {
     let original = load_obj(SPHERE_PATH).expect("load sphere.obj");
 
     let mut buf = Vec::new();
-    encode::encode(original.clone(), &mut buf, encode::Config::default())
-        .expect("encode sphere");
+    encode::encode(original.clone(), &mut buf, encode::Config::default()).expect("encode sphere");
 
     let mut reader = buf.into_iter();
-    let decoded = decode::decode(&mut reader, decode::Config::default())
-        .expect("decode sphere");
+    let decoded = decode::decode(&mut reader, decode::Config::default()).expect("decode sphere");
 
     assert_eq!(
         original.get_faces().len(),

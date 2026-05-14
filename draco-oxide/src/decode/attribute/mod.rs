@@ -40,9 +40,7 @@ use crate::shared::header::EncoderMethod;
 use self::inverse_prediction_transform::{
     InverseTransform, InverseTransformKind, OctahedralOrthogonalInverseTransform,
 };
-use self::portabilization::{
-    DeportabilizationKind, OctahedralNormal, Quantization,
-};
+use self::portabilization::{DeportabilizationKind, OctahedralNormal, Quantization};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Err {
@@ -72,7 +70,9 @@ pub enum Err {
     Rans(#[from] crate::decode::entropy::rans::Err),
     #[error("Unsupported component count: {0}")]
     UnsupportedNumComponents(u8),
-    #[error("Symbol stream ran out mid-decode (corner sequence yielded more vertices than symbols)")]
+    #[error(
+        "Symbol stream ran out mid-decode (corner sequence yielded more vertices than symbols)"
+    )]
     SymbolStreamUnderrun,
     #[error("Symbol stream had leftover symbols after decode (vertex count mismatch?)")]
     SymbolStreamSurplus,
@@ -244,9 +244,11 @@ pub(crate) fn decode_attributes_with_meta<R: ByteReader>(
             // correctly-decoded earlier attributes. After this, the
             // byte stream is in an undefined state — we can't continue
             // to the next attribute.
-            Err(reason @ (Err::PredictionSchemeTodo(_)
-            | Err::UnsupportedNumComponents(_)
-            | Err::InverseTransform(inverse_prediction_transform::Err::OctahedralTodo))) => {
+            Err(
+                reason @ (Err::PredictionSchemeTodo(_)
+                | Err::UnsupportedNumComponents(_)
+                | Err::InverseTransform(inverse_prediction_transform::Err::OctahedralTodo)),
+            ) => {
                 warnings.push(crate::decode::DecodeWarning::AttributeSkipped {
                     attribute_index,
                     attribute_type: meta.attribute_type,
@@ -330,7 +332,8 @@ fn decode_one_attribute<R: ByteReader>(
         // (closest of two sign-flipped variants) and stores one
         // orientation bit per visited vertex.
         (AttributeType::TextureCoordinate, PortabilizationType::QuantizationCoordinateWise)
-            if n_components == 2 && pred_scheme_id == MESH_PREDICTION_FOR_TEXTURE_COORDINATES_ID =>
+            if n_components == 2
+                && pred_scheme_id == MESH_PREDICTION_FOR_TEXTURE_COORDINATES_ID =>
         {
             // attr_table threading regresses our self-roundtrip (since
             // our encoder doesn't use attribute corner tables for
@@ -949,8 +952,14 @@ fn face_normal_i64(
 ) -> [i64; 3] {
     let next_vi = usize::from(ct.vertex_idx(ct.next(c)));
     let prev_vi = usize::from(ct.vertex_idx(ct.previous(c)));
-    let pn = positions_by_ct_vertex.get(next_vi).copied().unwrap_or([0; 3]);
-    let pp = positions_by_ct_vertex.get(prev_vi).copied().unwrap_or([0; 3]);
+    let pn = positions_by_ct_vertex
+        .get(next_vi)
+        .copied()
+        .unwrap_or([0; 3]);
+    let pp = positions_by_ct_vertex
+        .get(prev_vi)
+        .copied()
+        .unwrap_or([0; 3]);
     let dn = [pn[0] - pos_c[0], pn[1] - pos_c[1], pn[2] - pos_c[2]];
     let dp = [pp[0] - pos_c[0], pp[1] - pos_c[1], pp[2] - pos_c[2]];
     [
@@ -1118,42 +1127,34 @@ fn decode_uv_attribute<R: ByteReader>(
             if partial[next_vi] == partial[prev_vi] {
                 partial[prev_vi]
             } else {
-            // Complex prediction path. Encoder pushes one orientation
-            // here. Compute both candidate UVs and pick. Position
-            // lookups use UNIVERSAL vertex IDs (not attribute).
-            let pred_pair = uv_predict_complex(
-                partial[v_idx],
-                partial[next_vi],
-                partial[prev_vi],
-                positions_by_ct_vertex,
-                universal_v_idx(*c),
-                universal_v_idx(next_c),
-                universal_v_idx(prev_c),
-            );
-            match pred_pair {
-                Some((p0, p1)) => {
-                    let orient = orientations_remaining.pop().unwrap_or(true);
-                    if orient { p0 } else { p1 }
+                // Complex prediction path. Encoder pushes one orientation
+                // here. Compute both candidate UVs and pick. Position
+                // lookups use UNIVERSAL vertex IDs (not attribute).
+                let pred_pair = uv_predict_complex(
+                    partial[v_idx],
+                    partial[next_vi],
+                    partial[prev_vi],
+                    positions_by_ct_vertex,
+                    universal_v_idx(*c),
+                    universal_v_idx(next_c),
+                    universal_v_idx(prev_c),
+                );
+                match pred_pair {
+                    Some((p0, p1)) => {
+                        let orient = orientations_remaining.pop().unwrap_or(true);
+                        if orient {
+                            p0
+                        } else {
+                            p1
+                        }
+                    }
+                    // Encoder hit overflow guard → fallback (no orientation
+                    // pushed). Decoder must also fall back.
+                    None => uv_predict_fallback_attr(*c, next_vi, &visited, &partial, last_decoded),
                 }
-                // Encoder hit overflow guard → fallback (no orientation
-                // pushed). Decoder must also fall back.
-                None => uv_predict_fallback_attr(
-                    *c,
-                    next_vi,
-                    &visited,
-                    &partial,
-                    last_decoded,
-                ),
-            }
             }
         } else {
-            uv_predict_fallback_attr(
-                *c,
-                next_vi,
-                &visited,
-                &partial,
-                last_decoded,
-            )
+            uv_predict_fallback_attr(*c, next_vi, &visited, &partial, last_decoded)
         };
 
         if symbol_idx + N > symbols.len() {
@@ -1232,12 +1233,20 @@ fn uv_predict_complex(
     let next_uv = [next_uv_i32[0] as i64, next_uv_i32[1] as i64];
     let prev_uv = [prev_uv_i32[0] as i64, prev_uv_i32[1] as i64];
 
-    let pn = [prev_pos[0] - next_pos[0], prev_pos[1] - next_pos[1], prev_pos[2] - next_pos[2]];
+    let pn = [
+        prev_pos[0] - next_pos[0],
+        prev_pos[1] - next_pos[1],
+        prev_pos[2] - next_pos[2],
+    ];
     let pn_norm2_squared = (pn[0] * pn[0] + pn[1] * pn[1] + pn[2] * pn[2]) as u64;
     if pn_norm2_squared == 0 {
         return None;
     }
-    let cn = [curr_pos[0] - next_pos[0], curr_pos[1] - next_pos[1], curr_pos[2] - next_pos[2]];
+    let cn = [
+        curr_pos[0] - next_pos[0],
+        curr_pos[1] - next_pos[1],
+        curr_pos[2] - next_pos[2],
+    ];
     let cn_dot_pn = pn[0] * cn[0] + pn[1] * cn[1] + pn[2] * cn[2];
     let pn_uv = [prev_uv[0] - next_uv[0], prev_uv[1] - next_uv[1]];
 
@@ -1268,7 +1277,11 @@ fn uv_predict_complex(
         next_pos[1] + (pn[1] * cn_dot_pn) / pn_norm2_i,
         next_pos[2] + (pn[2] * cn_dot_pn) / pn_norm2_i,
     ];
-    let cx = [curr_pos[0] - x_pos[0], curr_pos[1] - x_pos[1], curr_pos[2] - x_pos[2]];
+    let cx = [
+        curr_pos[0] - x_pos[0],
+        curr_pos[1] - x_pos[1],
+        curr_pos[2] - x_pos[2],
+    ];
     let cx_norm2_squared = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]) as u64;
 
     let mut cx_uv = [pn_uv[1], -pn_uv[0]];
@@ -1343,10 +1356,8 @@ pub(crate) fn read_metadata<R: ByteReader>(
     if header.encoding_method == EncoderMethod::Edgebreaker {
         for slot in decoder_ids.iter_mut().take(num_attrs) {
             *slot = Some(reader.read_u8()?);
-            domains.push(
-                AttributeDomain::read_from(reader)
-                    .map_err(|_| Err::InvalidAttributeDomain)?,
-            );
+            domains
+                .push(AttributeDomain::read_from(reader).map_err(|_| Err::InvalidAttributeDomain)?);
             traversals.push(TraversalType::from_id(reader.read_u8()?)?);
         }
     } else {

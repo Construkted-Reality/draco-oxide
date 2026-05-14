@@ -59,11 +59,7 @@ impl InverseTransformKind {
 pub(crate) enum InverseTransform {
     NoTransform,
     Difference,
-    WrappedDifference {
-        min: i32,
-        max: i32,
-        max_diff: i32,
-    },
+    WrappedDifference { min: i32, max: i32, max_diff: i32 },
 }
 
 impl InverseTransform {
@@ -89,12 +85,7 @@ impl InverseTransform {
     /// Applies the inverse transform per-component:
     /// `(corr_positive[N], pred[N]) → orig[N]`. `corr_positive` is the
     /// symbol value as decoded from the stream (still in zigzag form).
-    pub(crate) fn inverse_n(
-        &self,
-        corr_positive: &[i32],
-        pred: &[i32],
-        out: &mut [i32],
-    ) {
+    pub(crate) fn inverse_n(&self, corr_positive: &[i32], pred: &[i32], out: &mut [i32]) {
         debug_assert_eq!(corr_positive.len(), pred.len());
         debug_assert_eq!(corr_positive.len(), out.len());
 
@@ -109,11 +100,7 @@ impl InverseTransform {
                     out[i] = from_positive_i32(corr_positive[i]) + pred[i];
                 }
             }
-            Self::WrappedDifference {
-                min,
-                max,
-                max_diff,
-            } => {
+            Self::WrappedDifference { min, max, max_diff } => {
                 for i in 0..corr_positive.len() {
                     let corr = from_positive_i32(corr_positive[i]);
                     let pred_clamped = pred[i].clamp(*min, *max);
@@ -154,11 +141,7 @@ impl OctahedralOrthogonalInverseTransform {
     /// `encode/attribute/prediction_transform/oct_orthogonal.rs::map_with_tentative_metadata`).
     /// Both `pred` and `corr_positive` are 2-component i32 arrays in the
     /// `[0, max_quantized_value]` range.
-    pub(crate) fn inverse(
-        &self,
-        corr_positive: &[i32; 2],
-        pred: &[i32; 2],
-    ) -> [i32; 2] {
+    pub(crate) fn inverse(&self, corr_positive: &[i32; 2], pred: &[i32; 2]) -> [i32; 2] {
         let center = self.center_value;
         let max = self.max_quantized_value;
 
