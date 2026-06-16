@@ -45,26 +45,41 @@ where
                 (min_values, eq.range, eq.quantization_bits)
             }
             None => {
-                // Per-mesh scan — original behavior.
+                // Per-mesh scan. Seed min/max from the FIRST value, not from
+                // zero. Seeding from `NdVector::zero()` (the original behavior)
+                // forced the quantization cube to include the origin (0,0,0):
+                // `min` could never rise above 0 and `max` could never fall
+                // below 0. For geometry offset far from the origin — e.g. a
+                // 3D-Tiles tile expressed in a local frame hundreds of metres
+                // from zero — this inflated `delta_max` to the distance from
+                // the origin to the far corner (often 1.5–3x the true extent),
+                // wasting most quantization levels on empty space and crushing
+                // precision on the thinnest axis. Seeding from the first vertex
+                // makes the cube tight to the data. The decoder reads the
+                // transmitted `min_values`/`range`, so round-trip stays correct.
+                let vals = att.unique_vals_as_slice::<Data>();
                 let mut min_values = NdVector::<N, f32>::zero();
-                for val in att.unique_vals_as_slice::<Data>() {
-                    for i in 0..N {
-                        let component = val.get(i).to_f64() as f32;
-                        if component < *min_values.get(i) {
-                            *min_values.get_mut(i) = component;
-                        }
-                    }
-                }
-
                 let mut max_values = NdVector::<N, f32>::zero();
-                for val in att.unique_vals_as_slice::<Data>() {
+                if let Some(first) = vals.first() {
                     for i in 0..N {
-                        let component = val.get(i).to_f64() as f32;
-                        if component > *max_values.get(i) {
-                            *max_values.get_mut(i) = component;
+                        let component = first.get(i).to_f64() as f32;
+                        *min_values.get_mut(i) = component;
+                        *max_values.get_mut(i) = component;
+                    }
+                    for val in vals {
+                        for i in 0..N {
+                            let component = val.get(i).to_f64() as f32;
+                            if component < *min_values.get(i) {
+                                *min_values.get_mut(i) = component;
+                            }
+                            if component > *max_values.get(i) {
+                                *max_values.get_mut(i) = component;
+                            }
                         }
                     }
                 }
+                // Empty attribute: min/max stay zero, delta_max becomes 0, and
+                // the zero-range path in `portabilize_value` handles it.
 
                 let mut delta_max = 0.0;
                 for i in 0..N {

@@ -317,6 +317,13 @@ where
             if let Some(ref eq) = group.prediction_transform.portabilization.explicit_quantization {
                 por_cfg.explicit_quantization = Some(eq.clone());
             }
+            // Caller-supplied bit-count override (set_attribute_quantization_bits).
+            // Applied on top of the per-type default from default_for above, so
+            // it changes only the bit count and keeps the automatic bbox scan.
+            if let Some(bits) = group.prediction_transform.portabilization.quantization_bits_override
+            {
+                por_cfg.quantization_bits = bits;
+            }
         }
 
         let mut att = Attribute::new(

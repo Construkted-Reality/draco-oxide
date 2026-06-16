@@ -132,6 +132,14 @@ pub struct ExplicitQuantization {
 pub struct Config {
     pub type_: PortabilizationType,
     pub quantization_bits: u8,
+    /// Caller-supplied override for `quantization_bits`. `None` keeps the
+    /// per-attribute default. When `Some(n)`, the attribute encoder applies `n`
+    /// while still running the automatic per-mesh bbox scan. This is the
+    /// channel for `encode::Config::set_attribute_quantization_bits`; it is a
+    /// sentinel (rather than just mutating `quantization_bits`) so that the
+    /// per-type defaults survive the `default_for` rebuild in
+    /// `attribute_encoder`.
+    pub quantization_bits_override: Option<u8>,
     pub explicit_quantization: Option<ExplicitQuantization>,
 }
 
@@ -140,6 +148,7 @@ impl ConfigType for Config {
         Config {
             type_: PortabilizationType::QuantizationCoordinateWise,
             quantization_bits: 11,
+            quantization_bits_override: None,
             explicit_quantization: None,
         }
     }
@@ -151,16 +160,19 @@ impl Config {
             AttributeType::Normal => Config {
                 type_: PortabilizationType::OctahedralQuantization,
                 quantization_bits: 8,
+                quantization_bits_override: None,
                 explicit_quantization: None,
             },
             AttributeType::TextureCoordinate => Config {
                 type_: PortabilizationType::QuantizationCoordinateWise,
                 quantization_bits: 10,
+                quantization_bits_override: None,
                 explicit_quantization: None,
             },
             AttributeType::Custom => Config {
                 type_: PortabilizationType::ToBits,
                 quantization_bits: 11, // default quantization bits (not used for ToBits)
+                quantization_bits_override: None,
                 explicit_quantization: None,
             },
             _ => Self::default(),

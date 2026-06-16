@@ -78,6 +78,17 @@ where
                 group.prediction_transform.portabilization.explicit_quantization =
                     Some(eq.clone());
             }
+        } else if let Some(&bits) = cfg.quantization_bits.get(&ty) {
+            // Override only the bit count; the automatic per-mesh bbox scan
+            // still runs. Skipped above when an explicit lattice is present
+            // (that lattice carries its own bit count). Recorded as a sentinel
+            // override so it survives the `default_for` rebuild of por_cfg in
+            // attribute_encoder (which would otherwise reset the per-type
+            // default bits).
+            if let Some(group) = enc_cfg.group_cfgs.first_mut() {
+                group.prediction_transform.portabilization.quantization_bits_override =
+                    Some(bits);
+            }
         }
         let encoder = attribute_encoder::AttributeEncoder::new(
             att,

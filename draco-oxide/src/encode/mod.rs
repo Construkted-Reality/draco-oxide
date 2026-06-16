@@ -37,6 +37,13 @@ pub struct Config {
     /// [`Config::set_attribute_explicit_quantization`]. See the method docs
     /// for semantics.
     pub(crate) explicit_quantization: HashMap<AttributeType, ExplicitQuantization>,
+    /// Per-attribute quantization-bit overrides. Populated by
+    /// [`Config::set_attribute_quantization_bits`]. Unlike
+    /// `explicit_quantization`, this keeps the encoder's automatic per-mesh
+    /// bbox scan and only changes the number of quantization bits. Ignored for
+    /// an attribute type that also has an `explicit_quantization` entry (the
+    /// explicit lattice carries its own bit count).
+    pub(crate) quantization_bits: HashMap<AttributeType, u8>,
 }
 
 impl ConfigType for Config {
@@ -48,6 +55,7 @@ impl ConfigType for Config {
             encoder_method: shared::header::EncoderMethod::Edgebreaker,
             metdata: false,
             explicit_quantization: HashMap::new(),
+            quantization_bits: HashMap::new(),
         }
     }
 }
@@ -97,6 +105,27 @@ impl Config {
                 quantization_bits: quantization_bits as u8,
             },
         );
+        self
+    }
+
+    /// Overrides the number of quantization bits for the given attribute type
+    /// while keeping the encoder's automatic per-mesh bbox scan.
+    ///
+    /// Use this when you want finer (or coarser) quantization than the
+    /// per-attribute default (Position 11, TexCoord 10, Normal 8) but do not
+    /// need — or cannot supply — an explicit shared lattice. The encoder still
+    /// computes a tight `(min, range)` from the mesh; only the bit count
+    /// changes.
+    ///
+    /// If an `explicit_quantization` entry also exists for `att_type`, that
+    /// lattice wins and this override is ignored (the explicit lattice carries
+    /// its own bit count).
+    pub fn set_attribute_quantization_bits(
+        &mut self,
+        att_type: AttributeType,
+        quantization_bits: u8,
+    ) -> &mut Self {
+        self.quantization_bits.insert(att_type, quantization_bits);
         self
     }
 }
