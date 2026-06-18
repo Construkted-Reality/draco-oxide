@@ -97,4 +97,31 @@ fn main() {
             println!("\n  matched {off} leading bytes before diverging.");
         }
     }
+
+    // Full-stream divergence summary: total differing bytes and the runs they
+    // fall in (only meaningful when sizes match — entropy-layer characterization).
+    if google.len() == oxide.len() {
+        let mut total = 0usize;
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        let mut i = 0;
+        while i < min {
+            if google[i] != oxide[i] {
+                let start = i;
+                while i < min && google[i] != oxide[i] {
+                    i += 1;
+                }
+                total += i - start;
+                runs.push((start, i - start));
+            } else {
+                i += 1;
+            }
+        }
+        println!(
+            "\n  total differing bytes: {total} / {min} in {} run(s)",
+            runs.len()
+        );
+        for (start, len) in runs.iter().take(20) {
+            println!("    run @ {start} len {len}");
+        }
+    }
 }
