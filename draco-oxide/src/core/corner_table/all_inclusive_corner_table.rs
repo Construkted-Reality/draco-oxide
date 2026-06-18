@@ -42,6 +42,19 @@ impl<'faces> AllInclusiveCornerTable<'faces> {
     pub fn universal_corner_table(&self) -> &CornerTable<'faces> {
         &self.universal
     }
+
+    /// For the attribute with the given attribute-encoder index (the same index
+    /// used by `attribute_corner_table`), returns whether its attribute corner
+    /// table has no interior (non-boundary) seams. Returns `None` when there is
+    /// no attribute corner table for that index (e.g. the position attribute).
+    pub fn no_interior_seams(&self, idx: usize) -> Option<bool> {
+        if idx == 0 {
+            return None;
+        }
+        self.attribute_tables
+            .get(idx - 1)
+            .map(|t| t.no_interior_seams())
+    }
 }
 
 /// Reference to an attribute corner table.

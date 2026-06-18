@@ -1,28 +1,32 @@
 //! Byte-identity gate: draco-oxide output vs Google C++, exact bytes.
 //!
 //! The end goal of the fork is byte-identical output (Draco is deterministic).
-//! `torus` is fully there (valence connectivity + position attribute + entropy);
-//! this locks it in. The progress report tracks the others toward parity.
+//! `torus` (position-only) and `bunny` (position + normal) are both fully there
+//! — valence connectivity + parallelogram/quantized positions + integer
+//! octahedral normals + rANS/rABS entropy. This locks them in. The progress
+//! report tracks the rest toward parity.
 
 use conformance::*;
 
 const QP: u32 = 11;
 const CL: u32 = 7;
 
-/// Hard gate: torus must stay byte-identical to Google's encoder.
+/// Hard gate: these meshes must stay byte-identical to Google's encoder.
 #[test]
-fn torus_byte_identical_to_google() {
-    let obj = mesh_dir().join("torus.obj");
-    let google = google_encode(&obj, QP, CL, false);
-    let oxide = oxide_encode(&obj, QP as u8).expect("oxide encode");
-    assert!(
-        oxide == google,
-        "torus must be byte-identical to Google ({} B oxide vs {} B google); \
-         first diff at {:?}",
-        oxide.len(),
-        google.len(),
-        (0..oxide.len().min(google.len())).find(|&i| oxide[i] != google[i]),
-    );
+fn meshes_byte_identical_to_google() {
+    for mesh in ["torus.obj", "bunny.obj"] {
+        let obj = mesh_dir().join(mesh);
+        let google = google_encode(&obj, QP, CL, false);
+        let oxide = oxide_encode(&obj, QP as u8).expect("oxide encode");
+        assert!(
+            oxide == google,
+            "{mesh} must be byte-identical to Google ({} B oxide vs {} B google); \
+             first diff at {:?}",
+            oxide.len(),
+            google.len(),
+            (0..oxide.len().min(google.len())).find(|&i| oxide[i] != google[i]),
+        );
+    }
 }
 
 /// Informational: per-mesh first-divergence offset (run with --nocapture).

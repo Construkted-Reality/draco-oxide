@@ -81,14 +81,20 @@ fn encode_output_is_byte_stable() {
 // size exactly (69169 B) and its NORMAL correction symbols + flip bits are
 // byte-identical to Google's; the only residual byte diffs are in the entropy
 // (rANS / flip-RABS) layer.
+// Regenerated 2026-06-18 after encoding the per-attribute element type the way
+// Google does: a corner attribute with no interior (non-boundary) seams is
+// written as MESH_VERTEX_ATTRIBUTE (0) rather than MESH_CORNER_ATTRIBUTE (1).
+// This made bunny byte-IDENTICAL to Google (the last diverging byte) and shifted
+// the same descriptor byte for the NORMAL/COLOR attributes of tetra/sphere; only
+// those three fingerprints changed (torus is position-only, unaffected).
 const EXPECT_TETRA_LEN: usize = 188;
-const EXPECT_TETRA_HASH: u64 = 9256427827054224580;
+const EXPECT_TETRA_HASH: u64 = 867813181395307981;
 const EXPECT_SPHERE_LEN: usize = 613;
-const EXPECT_SPHERE_HASH: u64 = 6653703601454808832;
+const EXPECT_SPHERE_HASH: u64 = 6661504626970154205;
 // torus and bunny (>= 1000 faces) now use VALENCE Edgebreaker at cl7/speed3,
 // matching Google; their connectivity is byte-identical to Google and the
 // output shrank (torus 3414->2490 == Google, bunny 78507->66567).
 const EXPECT_TORUS_LEN: usize = 2490;
 const EXPECT_TORUS_HASH: u64 = 6189417996939192234;
 const EXPECT_BUNNY_LEN: usize = 69169;
-const EXPECT_BUNNY_HASH: u64 = 7170921769623310397;
+const EXPECT_BUNNY_HASH: u64 = 2710872942979440892;

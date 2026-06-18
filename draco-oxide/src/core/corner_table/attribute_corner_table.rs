@@ -16,12 +16,20 @@ pub(crate) struct AttributeCornerTable {
     is_vertex_on_seam: Vec<bool>,
     left_most_corners: Vec<CornerIdx>,
     num_vertices: usize,
+    /// True iff the attribute has no *interior* (non-boundary) seams, i.e. every
+    /// interior edge has matching attribute values on both sides. Mirrors
+    /// Google's `MeshAttributeCornerTable::no_interior_seams_`. When true, Draco
+    /// encodes the attribute's element type as MESH_VERTEX_ATTRIBUTE (0) in the
+    /// per-attribute-encoder header rather than MESH_CORNER_ATTRIBUTE (1).
+    no_interior_seams: bool,
 }
 
 impl AttributeCornerTable {
     pub fn new(corner_table: &CornerTable, att: &mut Attribute) -> Self {
         let mut is_edge_on_seam = vec![false; corner_table.num_corners()];
         let mut is_vertex_on_seam = vec![false; corner_table.num_vertices()];
+        // Cleared when an interior (non-boundary) seam edge is found below.
+        let mut no_interior_seams = true;
 
         // We check which of the mesh vertices is part of an attribute seam, because seams require
         // special handling.
@@ -54,6 +62,8 @@ impl AttributeCornerTable {
                 let i1 = corner_table.get_mesh_faces()[c1 / 3][c1 % 3];
                 let i2 = corner_table.get_mesh_faces()[c2 / 3][c2 % 3];
                 if att.get_unique_val_idx(i1) != att.get_unique_val_idx(i2) {
+                    // Interior edge with mismatched attribute values across it.
+                    no_interior_seams = false;
                     is_edge_on_seam[c] = true;
                     is_edge_on_seam[usize::from(opp_corner)] = true;
                     // Mark seam vertices.
@@ -79,6 +89,7 @@ impl AttributeCornerTable {
             is_vertex_on_seam,
             left_most_corners: Vec::new(),
             num_vertices: corner_table.num_vertices(),
+            no_interior_seams,
         };
 
         out.recompute_vertices(att, corner_table);
@@ -152,6 +163,11 @@ impl AttributeCornerTable {
 
     pub(crate) fn num_vertices(&self) -> usize {
         self.num_vertices
+    }
+
+    /// True iff the attribute has no interior (non-boundary) seams. See field doc.
+    pub(crate) fn no_interior_seams(&self) -> bool {
+        self.no_interior_seams
     }
 
     pub(crate) fn next(&self, c: CornerIdx, corner_table: &CornerTable) -> CornerIdx {
