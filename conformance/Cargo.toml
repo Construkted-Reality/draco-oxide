@@ -1,0 +1,16 @@
+[package]
+name = "conformance"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Conformance & performance harness: draco-oxide vs Google C++ Draco."
+
+[dependencies]
+draco-oxide = { path = "../draco-oxide" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "codec"
+harness = false
