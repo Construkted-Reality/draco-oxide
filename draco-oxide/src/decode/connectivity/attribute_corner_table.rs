@@ -75,6 +75,8 @@ impl DecoderAttributeCornerTable {
 
         let mut is_edge_on_seam = vec![false; num_corners];
         let mut visited_faces = vec![false; num_faces];
+        // Cleared when any decoded seam bit marks an interior edge as a seam.
+        let mut no_interior_seams = true;
         let mut bit_idx = 0usize;
         debug_assert_eq!(primary_offsets.len(), num_faces);
         // Match encoder iteration order: faces in REVERSE of decoder
@@ -108,6 +110,7 @@ impl DecoderAttributeCornerTable {
                 if bit {
                     is_edge_on_seam[c] = true;
                     is_edge_on_seam[opp_raw] = true;
+                    no_interior_seams = false;
                 }
             }
         }
@@ -135,6 +138,43 @@ impl DecoderAttributeCornerTable {
             if p_v < is_vertex_on_seam.len() {
                 is_vertex_on_seam[p_v] = true;
             }
+        }
+
+        // Fast path: with no interior seams the attribute vertices are exactly
+        // the (valid) universal vertices, so copy the universal vertex map and
+        // its left-most corners instead of re-swinging every ring. Mirrors the
+        // encoder's no-interior-seams fast path. Phantom/merged-out universal
+        // vertices (left_most == NONE) are skipped, so attribute ids stay dense.
+        if no_interior_seams {
+            let mut attr_id_of = vec![usize::MAX; num_universal_vertices];
+            let mut left_most_corners: Vec<usize> = Vec::new();
+            let mut num_new_vertices = 0usize;
+            for v in 0..num_universal_vertices {
+                if v >= ct.left_most_corner.len() || ct.left_most_corner[v] == NO_CORNER {
+                    continue;
+                }
+                let c = CornerIdx::from(ct.left_most_corner[v]);
+                if usize::from(ct.vertex_idx(c)) != v {
+                    continue;
+                }
+                attr_id_of[v] = num_new_vertices;
+                left_most_corners.push(ct.left_most_corner[v]);
+                num_new_vertices += 1;
+            }
+            let mut corner_to_vertex = vec![usize::MAX; num_corners];
+            for (c, slot) in corner_to_vertex.iter_mut().enumerate() {
+                let v = usize::from(ct.vertex_idx(CornerIdx::from(c)));
+                if v < attr_id_of.len() {
+                    *slot = attr_id_of[v];
+                }
+            }
+            return Self {
+                corner_to_vertex,
+                is_edge_on_seam,
+                left_most_corners,
+                num_vertices: num_new_vertices,
+                opposite_universal: ct.opposite.clone(),
+            };
         }
 
         // Reconstruct corner_to_vertex by walking each universal vertex's
