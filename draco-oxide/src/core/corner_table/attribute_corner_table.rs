@@ -99,6 +99,30 @@ impl AttributeCornerTable {
     pub fn recompute_vertices(&mut self, att: &Attribute, corner_table: &CornerTable) {
         self.vertex_to_attribute_map.clear();
         self.left_most_corners.clear();
+
+        // Fast path: with no interior seams the attribute vertices map 1:1 to the
+        // universal vertices, so `corner_to_vertex` and `left_most_corners` are
+        // exactly the universal table's (already computed in `CornerTable::new`).
+        // Skip the per-vertex swing rebuild and just copy them — O(corners) reads
+        // instead of O(corners) ring navigation. (Verified byte-identical on
+        // bunny, which has an open boundary + no-interior-seam normals.)
+        if self.no_interior_seams {
+            let nv = corner_table.num_vertices();
+            self.vertex_to_attribute_map.reserve(nv);
+            self.left_most_corners.reserve(nv);
+            for v in 0..nv {
+                let c = corner_table.left_most_corner(VertexIdx::from(v));
+                self.left_most_corners.push(c);
+                self.vertex_to_attribute_map
+                    .push(att.get_unique_val_idx(corner_table.point_idx(c)));
+            }
+            for c in 0..corner_table.num_corners() {
+                self.corner_to_vertex[c] = corner_table.vertex_idx(CornerIdx::from(c));
+            }
+            self.num_vertices = nv;
+            return;
+        }
+
         let mut num_new_vertices = 0;
 
         for v in 0..corner_table.num_vertices() {
