@@ -58,14 +58,22 @@
 
 ### C. Per-attribute-encoder metadata — fine divergences (tetra byte 40)
 
-- **What:** after the attribute-order fix, tetra now diverges at byte 40, a single
-  byte (`0x00` google vs `0x01` oxide) in the attribute-encoder identifier/data
-  records (element type / traversal / num-attributes / normalized / prediction
-  fields — needs decoding against `EncodeAttributesEncoderIdentifier` /
-  `EncodeAttributesEncoderData`).
-- **Effort:** small-to-medium per divergence, but a long tail.
-- **Recommendation:** chase with `bytediff tetrahedron 11` once A/B are settled
-  (tetra is the cleanest case — connectivity already byte-matches).
+- **DECODED:** byte 40 is the **element_type** byte of the 3rd attribute
+  encoder's identifier (the NORMAL attribute). Google writes
+  `GetAttributeElementType(att_id)` — `MESH_VERTEX_ATTRIBUTE=0` or
+  `MESH_CORNER_ATTRIBUTE=1`, chosen per attribute by seam analysis
+  (`mesh_edgebreaker_encoder_impl.cc:240-256`): tetra's TEXCOORD is seam-split →
+  `1` (matches at byte 37), but NORMAL is NOT seam-split → `0`. draco-oxide
+  writes `att.get_domain()` instead (`encode/attribute/mod.rs:36`), which yields
+  `1` for the normal → divergence (`0x00` google vs `0x01` oxide).
+- **Fix:** in `encode/attribute/mod.rs:31-39`, emit the Draco element_type
+  (0=vertex / 1=corner) derived from whether the attribute actually has its own
+  attribute corner table (seams), NOT from `AttributeDomain`. Must coordinate
+  with the DECODER, which reads this byte (`decode/attribute/mod.rs` dispatcher
+  via `meta.decoder_id` / element-type) — verify round-trip + interop after.
+- **Effort:** small fix, but touches the encoder/decoder contract and the seam
+  classification; verify carefully. A long tail of similar fine divergences
+  likely follows (chase with `bytediff tetrahedron 11`).
 
 ### D. Prediction / transform parity (from the earlier audit, files 01–02)
 
