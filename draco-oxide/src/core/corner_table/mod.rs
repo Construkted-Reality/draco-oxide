@@ -125,15 +125,22 @@ impl<'mesh> CornerTable<'mesh> {
     /// plus 3*num_faces tiny allocations — which dominated `CornerTable::new`
     /// in the encode profile.)
     fn contains_non_manifold_edges(faces: &[[VertexIdx; 3]]) -> bool {
-        let mut edge_counts: rustc_hash::FxHashMap<(usize, usize), u8> =
-            rustc_hash::FxHashMap::default();
+        // Pack each undirected edge into a single u64 key (min<<32 | max) so the
+        // hasher does one 8-byte round instead of two for a (usize,usize) tuple.
+        // Vertex indices are always < 2^32. Same semantics: a third use of any
+        // edge => non-manifold.
+        let mut edge_counts: rustc_hash::FxHashMap<u64, u8> = rustc_hash::FxHashMap::default();
         edge_counts.reserve(faces.len() * 3);
         for f in faces {
-            let vs = [usize::from(f[0]), usize::from(f[1]), usize::from(f[2])];
+            let vs = [
+                usize::from(f[0]) as u64,
+                usize::from(f[1]) as u64,
+                usize::from(f[2]) as u64,
+            ];
             for &(a, b) in &[(vs[0], vs[1]), (vs[1], vs[2]), (vs[2], vs[0])] {
-                let key = if a <= b { (a, b) } else { (b, a) };
+                let key = if a <= b { (a << 32) | b } else { (b << 32) | a };
                 let cnt = edge_counts.entry(key).or_insert(0u8);
-                *cnt = cnt.saturating_add(1);
+                *cnt += 1;
                 if *cnt > 2 {
                     return true; // a third use of an edge => non-manifold
                 }
