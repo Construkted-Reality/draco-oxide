@@ -2,9 +2,25 @@
 
 ## 1. Encoded size blows up with quantization bit-depth (entropy coder)
 
-**Status:** open, not fixed. Documented 2026-06-17.
-**Severity:** high — makes Draco compression net-useless or counterproductive at
-the quantization bit-depths real pipelines use (12–14 bit position).
+**Status:** FIXED 2026-06-17 (commit on `feat/google-parity`). Was: open.
+**Severity:** was high — made Draco compression net-useless or counterproductive
+at the quantization bit-depths real pipelines use (12–14 bit position).
+
+### Fix summary
+
+Resolved by porting Google's adaptive symbol-scheme selection (tagged vs raw)
+and fixing two rANS bugs (distinct-vs-nonzero symbol count, MSB+1 bit-length,
+and the frequency-table zero-run encoder that degraded to O(max_value)). See
+`docs/audit/2026-06-17-google-parity/06-scheme-selection-fix.md`. Size parity vs
+Google after the fix (oxide/google): tetra 1.02×, sphere qp14 0.89×, torus qp14
+1.21×, bunny 1.14×. The catastrophic sphere-qp14 18× is gone; small primitives
+no longer blow up. Verified by the `conformance` size-parity + interop gates.
+
+Remaining size gap on large meshes (~13% on bunny) is the **valence vs standard
+Edgebreaker connectivity** choice (see `07-byte-identity-roadmap.md`), tracked
+separately under the byte-identity work — not this entropy issue.
+
+### Original report (kept for reference)
 
 ### Symptom
 
