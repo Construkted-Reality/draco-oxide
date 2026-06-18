@@ -779,16 +779,34 @@ pub(crate) struct ValenceTraversal {
 
 impl Traversal for ValenceTraversal {
     fn new(corner_table: &CornerTable<'_>) -> Self {
-        let mut vertex_valences = Vec::with_capacity(corner_table.num_vertices());
-        for i in 0..corner_table.num_vertices() {
-            let v = VertexIdx::from(i);
-            vertex_valences.push(corner_table.vertex_valence(v) as i32);
+        // Valence = (corners at the vertex) + (1 if the vertex is on an open
+        // boundary), matching CornerTable::vertex_valence() but WITHOUT the
+        // per-vertex ring swing: count corners per vertex in the same pass that
+        // builds corner_to_vertex_map, then add 1 for each boundary vertex.
+        let nv = corner_table.num_vertices();
+        let nc = corner_table.num_corners();
+        let mut vertex_valences = vec![0i32; nv];
+        let mut corner_to_vertex_map = Vec::with_capacity(nc);
+        for i in 0..nc {
+            let v = corner_table.vertex_idx(CornerIdx::from(i));
+            vertex_valences[usize::from(v)] += 1;
+            corner_to_vertex_map.push(v);
         }
-
-        let mut corner_to_vertex_map = Vec::with_capacity(corner_table.num_corners());
-        for i in 0..corner_table.num_corners() {
+        // A boundary edge (opposite == None) makes its two endpoint vertices
+        // boundary; each is flagged once (a boundary vertex has two such edges
+        // but gets only a single +1, matching vertex_valence()).
+        let mut is_boundary = vec![false; nv];
+        for i in 0..nc {
             let c = CornerIdx::from(i);
-            corner_to_vertex_map.push(corner_table.vertex_idx(c));
+            if corner_table.opposite(c).is_none() {
+                is_boundary[usize::from(corner_table.vertex_idx(corner_table.next(c)))] = true;
+                is_boundary[usize::from(corner_table.vertex_idx(corner_table.previous(c)))] = true;
+            }
+        }
+        for v in 0..nv {
+            if is_boundary[v] {
+                vertex_valences[v] += 1;
+            }
         }
 
         let num_unique_valences = MAX_VALENCE - MIN_VALENCE + 1;
