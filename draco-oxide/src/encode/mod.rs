@@ -33,6 +33,10 @@ pub struct Config {
     geometry_type: header::EncodedGeometryType,
     encoder_method: shared::header::EncoderMethod,
     metdata: bool,
+    /// Compression level 0..=10 (Google's `-cl`). Drives `speed = 10 - cl` which
+    /// selects the Edgebreaker traversal (Valence for `num_faces >= 1000` at
+    /// `speed < 5`). Default 7 (speed 3), matching Google's default.
+    pub(crate) compression_level: u8,
     /// Per-attribute caller-supplied explicit quantization. Populated by
     /// [`Config::set_attribute_explicit_quantization`]. See the method docs
     /// for semantics.
@@ -54,6 +58,7 @@ impl ConfigType for Config {
             geometry_type: header::EncodedGeometryType::TrianglarMesh,
             encoder_method: shared::header::EncoderMethod::Edgebreaker,
             metdata: false,
+            compression_level: 7,
             explicit_quantization: HashMap::new(),
             quantization_bits: HashMap::new(),
         }

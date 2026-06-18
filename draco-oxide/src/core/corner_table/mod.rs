@@ -428,15 +428,29 @@ impl<'mesh> CornerTable<'mesh> {
     }
 
     #[inline]
+    /// Vertex valence = size of the vertex's neighbor ring, matching Google's
+    /// `CornerTable::Valence` (`VertexRingIterator`). For an interior vertex this
+    /// equals the number of incident corners/faces; for a BOUNDARY vertex the
+    /// open fan of `k` faces has `k + 1` ring neighbors, so we add one when the
+    /// swing runs off the boundary (`swing_right` returns `None`).
     pub(crate) fn vertex_valence(&self, v: VertexIdx) -> usize {
-        let c = self.left_most_corner(v);
-        let mut count = 2;
-        while let Some(next_c) = self.swing_right(c) {
-            if next_c == c {
-                count -= 1;
-                break; // we have reached back to the initial corner
+        let start = self.left_most_corner(v);
+        let mut c = start;
+        let mut count = 1; // the start corner itself
+        loop {
+            match self.swing_right(c) {
+                // Interior vertex: swung all the way back to the start.
+                Some(next_c) if next_c == start => break,
+                Some(next_c) => {
+                    count += 1;
+                    c = next_c; // ADVANCE — the previous code reused `c`, looping forever
+                }
+                // Boundary vertex: +1 for the extra ring neighbor at the open edge.
+                None => {
+                    count += 1;
+                    break;
+                }
             }
-            count += 1;
         }
         count
     }

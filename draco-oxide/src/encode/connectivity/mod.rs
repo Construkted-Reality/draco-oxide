@@ -18,8 +18,6 @@ pub fn encode_connectivity<'faces, W>(
     faces: &'faces [[PointIdx; 3]],
     atts: &mut [Attribute],
     writer: &mut W,
-    #[allow(unused)]
-    // This parameter is unused in the current implementation, as we only support default configuration.
     cfg: &super::Config,
 ) -> Result<ConnectivityEncoderOutput<'faces>, Err>
 where
@@ -28,7 +26,21 @@ where
     #[cfg(feature = "evaluation")]
     eval::scope_begin("connectivity info", writer);
 
-    let result = encode_connectivity_datatype_unpacked(faces, atts, writer, Config::default());
+    // Select the Edgebreaker traversal the way Google's InitializeEncoder does
+    // (mesh_edgebreaker_encoder.cc:34-45): VALENCE when num_faces >= 1000 and
+    // speed < 5, else STANDARD. speed = 10 - compression_level.
+    let speed = 10u8.saturating_sub(cfg.compression_level);
+    let traversal = if faces.len() < 1000 || speed >= 5 {
+        EdgebreakerKind::Standard
+    } else {
+        EdgebreakerKind::Valence
+    };
+    let conn_cfg = Config::Edgebreaker(edgebreaker::Config {
+        traversal,
+        use_single_connectivity: false,
+    });
+
+    let result = encode_connectivity_datatype_unpacked(faces, atts, writer, conn_cfg);
 
     #[cfg(feature = "evaluation")]
     eval::scope_end(writer);

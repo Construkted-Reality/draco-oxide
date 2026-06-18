@@ -19,7 +19,6 @@ use crate::core::shared::{
 use crate::shared::connectivity::edgebreaker::{
     self, EdgebreakerKind, Orientation, TopologySplit, MAX_VALENCE, MIN_VALENCE,
 };
-use crate::shared::entropy::SymbolEncodingMethod;
 use crate::utils::bit_coder::leb128_write;
 use std::collections::BTreeMap;
 use std::vec;
@@ -505,8 +504,9 @@ where
         W: ByteWriter,
     {
         debug_write!("Init Decoder", writer);
-        // encode the traversal decoder type
-        EdgebreakerKind::Standard.write_to(writer);
+        // encode the traversal decoder type (the method selected into this
+        // encoder's config: Standard 0x00 or Valence 0x02).
+        self.config.traversal.write_to(writer);
         debug_write!("Init Decoder Done", writer);
 
         self.compute_boundaries()?;
@@ -667,83 +667,114 @@ impl Traversal for DefaultTraversal {
             final_writer.write_u8(byte);
         }
 
-        // encode the start face configurations.
-        let freq_count_0 = self.interior_cfg.iter().filter(|&&cfg| !cfg).count();
-        // the probability of zero in [0,1] is scaled to [0,256], and clamped to [1,255] as the rans does not accept the zero probability.
-        let zero_prob = (((freq_count_0 as f32 / self.interior_cfg.len() as f32) * 256.0 + 0.5)
-            as u16)
-            .clamp(1, 255) as u8;
-        final_writer.write_u8(zero_prob);
-        {
-            let mut writer: RabsCoder = RabsCoder::new(zero_prob as usize, None);
-            for &cfg in self.interior_cfg.iter().rev() {
-                writer.write(if cfg { 1 } else { 0 })?;
-            }
-            let buffer = writer.flush()?;
-            leb128_write(buffer.len() as u64, final_writer);
-            for byte in buffer {
-                final_writer.write_u8(byte);
-            }
-        }
-
-        // compute the attribute seams
-        let mut visited_faces = vec![false; corner_table.num_faces()];
-        let mut seams_data = (0..att_data.len())
-            .map(|_| Vec::with_capacity(corner_table.num_corners() >> 1))
-            .collect::<Vec<_>>();
-        for c in self.processed_connectivity_corners.into_iter().rev() {
-            let corners = [c, corner_table.next(c), corner_table.previous(c)];
-            let f_idx = corner_table.face_idx_containing(c);
-            visited_faces[usize::from(f_idx)] = true;
-            for corner in &corners {
-                if let Some(opp_corner) = corner_table.opposite(*corner) {
-                    let opp_face = corner_table.face_idx_containing(opp_corner);
-                    if visited_faces[usize::from(opp_face)] {
-                        // if the opposite face is already visited, then we do not need to record the attribute seam.
-                        continue;
-                    }
-                } else {
-                    // if the edge opposite to the corner is on a boundary, then we do not need to record the attribute seam.
-                    continue;
-                }
-
-                for (j, att_data) in att_data.iter().enumerate() {
-                    // store true if the corner is on an attribute seam, false otherwise.
-                    seams_data[j].push(att_data.opposite(*corner, corner_table).is_none());
-                }
-            }
-        }
-        // encode the attribute seams.
-        for seams_data in seams_data {
-            let freq_count_0 = seams_data.iter().filter(|&&s| !s).count();
-            let prob_zero = (((freq_count_0 as f32 / seams_data.len() as f32) * 256.0 + 0.5) as u16)
-                .clamp(1, 255) as u8;
-            final_writer.write_u8(prob_zero);
-            {
-                let mut writer: RabsCoder = RabsCoder::new(prob_zero as usize, None);
-                for &s in seams_data.iter().rev() {
-                    writer.write(if s { 1 } else { 0 })?;
-                }
-                let buffer = writer.flush()?;
-                leb128_write(buffer.len() as u64, final_writer);
-                for byte in buffer {
-                    final_writer.write_u8(byte);
-                }
-            }
-        }
+        write_start_faces(final_writer, &self.interior_cfg)?;
+        write_attribute_seams(
+            final_writer,
+            self.processed_connectivity_corners,
+            att_data,
+            corner_table,
+        )?;
 
         Ok(())
     }
 }
 
+/// Writes the Edgebreaker start-face configuration RABS block (one interior/
+/// boundary bit per init face, in reverse order). Shared by the standard and
+/// valence traversals — byte-identical to Google's `EncodeStartFaces`.
+fn write_start_faces<W>(final_writer: &mut W, interior_cfg: &[bool]) -> Result<(), Err>
+where
+    W: ByteWriter,
+{
+    let freq_count_0 = interior_cfg.iter().filter(|&&cfg| !cfg).count();
+    // the probability of zero in [0,1] is scaled to [0,256], and clamped to [1,255] as the rans does not accept the zero probability.
+    let zero_prob = (((freq_count_0 as f32 / interior_cfg.len() as f32) * 256.0 + 0.5) as u16)
+        .clamp(1, 255) as u8;
+    final_writer.write_u8(zero_prob);
+    let mut writer: RabsCoder = RabsCoder::new(zero_prob as usize, None);
+    for &cfg in interior_cfg.iter().rev() {
+        writer.write(if cfg { 1 } else { 0 })?;
+    }
+    let buffer = writer.flush()?;
+    leb128_write(buffer.len() as u64, final_writer);
+    for byte in buffer {
+        final_writer.write_u8(byte);
+    }
+    Ok(())
+}
+
+/// Writes the per-attribute seam RABS blocks (one per non-position attribute, in
+/// attribute order). Shared by the standard and valence traversals —
+/// byte-identical to Google's `EncodeAttributeSeams`.
+fn write_attribute_seams<W>(
+    final_writer: &mut W,
+    processed_connectivity_corners: Vec<CornerIdx>,
+    att_data: &[AttributeCornerTable],
+    corner_table: &CornerTable<'_>,
+) -> Result<(), Err>
+where
+    W: ByteWriter,
+{
+    let mut visited_faces = vec![false; corner_table.num_faces()];
+    let mut seams_data = (0..att_data.len())
+        .map(|_| Vec::with_capacity(corner_table.num_corners() >> 1))
+        .collect::<Vec<_>>();
+    for c in processed_connectivity_corners.into_iter().rev() {
+        let corners = [c, corner_table.next(c), corner_table.previous(c)];
+        let f_idx = corner_table.face_idx_containing(c);
+        visited_faces[usize::from(f_idx)] = true;
+        for corner in &corners {
+            if let Some(opp_corner) = corner_table.opposite(*corner) {
+                let opp_face = corner_table.face_idx_containing(opp_corner);
+                if visited_faces[usize::from(opp_face)] {
+                    // if the opposite face is already visited, then we do not need to record the attribute seam.
+                    continue;
+                }
+            } else {
+                // if the edge opposite to the corner is on a boundary, then we do not need to record the attribute seam.
+                continue;
+            }
+
+            for (j, att_data) in att_data.iter().enumerate() {
+                // store true if the corner is on an attribute seam, false otherwise.
+                seams_data[j].push(att_data.opposite(*corner, corner_table).is_none());
+            }
+        }
+    }
+    // encode the attribute seams.
+    for seams_data in seams_data {
+        let freq_count_0 = seams_data.iter().filter(|&&s| !s).count();
+        let prob_zero = (((freq_count_0 as f32 / seams_data.len() as f32) * 256.0 + 0.5) as u16)
+            .clamp(1, 255) as u8;
+        final_writer.write_u8(prob_zero);
+        let mut writer: RabsCoder = RabsCoder::new(prob_zero as usize, None);
+        for &s in seams_data.iter().rev() {
+            writer.write(if s { 1 } else { 0 })?;
+        }
+        let buffer = writer.flush()?;
+        leb128_write(buffer.len() as u64, final_writer);
+        for byte in buffer {
+            final_writer.write_u8(byte);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) struct ValenceTraversal {
-    vertex_valences: Vec<usize>,
+    /// Signed, matching Google's `std::vector<int>`: valences are decremented as
+    /// the traversal consumes faces and go transiently to 0 / -1 (the last E/L
+    /// touching a vertex), which the [MIN_VALENCE, MAX_VALENCE] clamp absorbs. A
+    /// `usize` here panics on that underflow.
+    vertex_valences: Vec<i32>,
     corner_to_vertex_map: Vec<VertexIdx>,
     context_symbols: Vec<Vec<Symbol>>,
     last_corner: CornerIdx,
     prev_symbol: Option<Symbol>,
     interior_cfg: Vec<bool>,
     num_symbols: usize,
+    /// Corners in traversal order — needed to compute attribute seams, exactly
+    /// like `DefaultTraversal`. Accumulated in `new_corner_reached`.
+    processed_connectivity_corners: Vec<CornerIdx>,
 }
 
 impl Traversal for ValenceTraversal {
@@ -751,7 +782,7 @@ impl Traversal for ValenceTraversal {
         let mut vertex_valences = Vec::with_capacity(corner_table.num_vertices());
         for i in 0..corner_table.num_vertices() {
             let v = VertexIdx::from(i);
-            vertex_valences.push(corner_table.vertex_valence(v));
+            vertex_valences.push(corner_table.vertex_valence(v) as i32);
         }
 
         let mut corner_to_vertex_map = Vec::with_capacity(corner_table.num_corners());
@@ -771,6 +802,7 @@ impl Traversal for ValenceTraversal {
             prev_symbol: None,
             interior_cfg: Vec::new(),
             num_symbols: 0,
+            processed_connectivity_corners: Vec::new(),
         }
     }
 
@@ -788,7 +820,17 @@ impl Traversal for ValenceTraversal {
         let active_valence =
             self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])];
         match symbol {
-            Symbol::C => {}
+            Symbol::C => {
+                // Google's TOPOLOGY_C falls through to TOPOLOGY_S and applies the
+                // next/prev -= 1 valence decrements (but NOT the vertex split),
+                // see mesh_edgebreaker_traversal_valence_encoder.h:91-97. The
+                // empty arm here was a latent bug: it desynced the per-vertex
+                // valences from both Google and our own valence decoder.
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -=
+                    1;
+                self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(prev)])] -=
+                    1;
+            }
             Symbol::S => {
                 // Update valences.
                 self.vertex_valences[usize::from(self.corner_to_vertex_map[usize::from(next)])] -=
@@ -809,7 +851,7 @@ impl Traversal for ValenceTraversal {
                 }
                 self.vertex_valences
                     [usize::from(self.corner_to_vertex_map[usize::from(self.last_corner)])] =
-                    num_left_faces + 1;
+                    num_left_faces as i32 + 1;
 
                 // Create a new vertex for the right side and count the number of
                 // faces that should be attached to this vertex.
@@ -827,7 +869,7 @@ impl Traversal for ValenceTraversal {
                         new_vert_id.into();
                     maybe_act_c = corner_table.opposite(corner_table.previous(act_c));
                 }
-                self.vertex_valences.push(num_right_faces + 1);
+                self.vertex_valences.push(num_right_faces as i32 + 1);
             }
             Symbol::R => {
                 // Update valences.
@@ -857,9 +899,9 @@ impl Traversal for ValenceTraversal {
         }
 
         if self.prev_symbol.is_some() {
-            let clamped_valence = active_valence.clamp(MIN_VALENCE, MAX_VALENCE);
+            let clamped_valence = active_valence.clamp(MIN_VALENCE as i32, MAX_VALENCE as i32);
 
-            let context = clamped_valence - MIN_VALENCE;
+            let context = (clamped_valence - MIN_VALENCE as i32) as usize;
             self.context_symbols[context].push(self.prev_symbol.unwrap());
         }
 
@@ -871,6 +913,7 @@ impl Traversal for ValenceTraversal {
     }
 
     fn new_corner_reached(&mut self, c: CornerIdx) {
+        self.processed_connectivity_corners.push(c);
         self.last_corner = c;
     }
 
@@ -881,27 +924,42 @@ impl Traversal for ValenceTraversal {
     fn encode<W>(
         self,
         writer: &mut W,
-        _: &[AttributeCornerTable],
-        _: &CornerTable<'_>,
+        att_data: &[AttributeCornerTable],
+        corner_table: &CornerTable<'_>,
     ) -> Result<(), Err>
     where
         W: ByteWriter,
     {
-        // self.encode_start_faces();
-        // self.encode_attribute_seams();
+        // Valence `Done()` order (mesh_edgebreaker_traversal_valence_encoder.h:
+        // 187-201): start-faces, then attribute-seams, then the per-context
+        // symbol arrays. (Unlike the standard traversal there is NO inline
+        // CRLES bit block — the symbols are buffered per valence context and
+        // entropy-coded here.)
+        write_start_faces(writer, &self.interior_cfg)?;
+        write_attribute_seams(
+            writer,
+            self.processed_connectivity_corners,
+            att_data,
+            corner_table,
+        )?;
 
-        // Store the contexts.
+        // Store the 6 contexts (valence MIN_VALENCE..=MAX_VALENCE), including
+        // empty ones. Each: leb128(count) then an adaptive symbol stream — let
+        // the estimator pick tagged vs raw like Google's EncodeSymbols(.., 1,
+        // nullptr, ..), so the bytes match whatever Google chose.
         for context in self.context_symbols {
             leb128_write(context.len() as u64, writer);
-            let context = context
-                .iter()
-                .map(|&s| s.get_id() as u64)
-                .collect::<Vec<_>>();
-
-            // Connectivity symbols stay on the raw scheme: Google's selection
-            // also resolves to raw for these in every case we measured, and this
-            // keeps the connectivity decode path unchanged.
-            encode_symbols(context, 1, Some(SymbolEncodingMethod::DirectCoded), writer)?;
+            // Google only emits a symbol stream for NON-empty contexts
+            // (mesh_edgebreaker_traversal_valence_encoder.h:195-200). Calling the
+            // symbol coder on an empty context builds an empty frequency table
+            // and panics.
+            if !context.is_empty() {
+                let context = context
+                    .iter()
+                    .map(|&s| s.get_id() as u64)
+                    .collect::<Vec<_>>();
+                encode_symbols(context, 1, None, writer)?;
+            }
         }
 
         Ok(())
