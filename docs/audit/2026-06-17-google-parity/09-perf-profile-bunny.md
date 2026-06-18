@@ -57,6 +57,28 @@ Draco's corner attributes into a unified indexed mesh.
 4. **`compute_sequence`** (decode ~10%, encode ~3.5%). Runs per attribute; check
    for redundant calls and O(n) tightening.
 
+## Results (items 1–2 implemented, output byte-identical)
+
+| bunny, vs C++ | before | after |
+|---|---:|---:|
+| encode | 1.8× (42 ms) | **1.5–1.6× (~37 ms)** |
+| decode | 1.6× (22 ms) | **1.1× (15 ms)** |
+
+What actually moved the needle:
+- **encode**: the `contains_non_manifold_edges` O(E log E) sort + per-face Vec
+  allocs → O(E) FxHashMap count. ~4 ms / ~10%.
+- **decode**: the BTreeSet remap in `decode_with_warnings` (the *Mesh* path; the
+  profiled path — I first mis-optimized `build_raw`, the flat-bytes path) → three
+  linear passes. ~6 ms; decode is now essentially at parity.
+- The decode dedup `HashMap` → `FxHashMap` swap (the literal "item 2") had
+  negligible effect — the tuple hash was never the bottleneck.
+
+Remaining headroom: encode is still ~1.5–1.6×, mostly the rest of corner-table
+construction (`compute_table` bucketing + `AttributeCornerTable::new`, ~25%),
+prediction (~12%), and navigation (~11%). Decode at 1.1× — `predict_normal`
+(12.5%) and the decode corner-table build (~16%) are the next items but the
+return is small now.
+
 Notes:
 - Items 1–2 are pure internal-data-structure work (no bitstream change) → safe to
   do without touching byte-identity. Item 3 changes attribute bytes → couple it
