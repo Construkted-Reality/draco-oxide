@@ -119,30 +119,24 @@ impl<'mesh> CornerTable<'mesh> {
     }
 
     /// checks if the mesh has non-manifold edges.
+    ///
+    /// O(E) via a hash count of normalized undirected edges. (Previously this
+    /// allocated a `Vec` per face and sorted all 3*num_faces edges — O(E log E)
+    /// plus 3*num_faces tiny allocations — which dominated `CornerTable::new`
+    /// in the encode profile.)
     fn contains_non_manifold_edges(faces: &[[VertexIdx; 3]]) -> bool {
-        let mut edges = faces
-            .iter()
-            .flat_map(|f| {
-                let v0 = f[0];
-                let v1 = f[1];
-                let v2 = f[2];
-                vec![[v0, v1], [v1, v2], [v2, v0]]
-            })
-            .collect::<Vec<_>>();
-        for e in &mut edges {
-            e.sort();
-        }
-        edges.sort();
-        // count duplicates. If there is a triple of the same edge, it is non-manifold.
-        let mut count = 1;
-        for i in 1..edges.len() {
-            if edges[i] == edges[i - 1] {
-                count += 1;
-                if count > 2 {
-                    return true; // found a non-manifold edge
+        let mut edge_counts: rustc_hash::FxHashMap<(usize, usize), u8> =
+            rustc_hash::FxHashMap::default();
+        edge_counts.reserve(faces.len() * 3);
+        for f in faces {
+            let vs = [usize::from(f[0]), usize::from(f[1]), usize::from(f[2])];
+            for &(a, b) in &[(vs[0], vs[1]), (vs[1], vs[2]), (vs[2], vs[0])] {
+                let key = if a <= b { (a, b) } else { (b, a) };
+                let cnt = edge_counts.entry(key).or_insert(0u8);
+                *cnt = cnt.saturating_add(1);
+                if *cnt > 2 {
+                    return true; // a third use of an edge => non-manifold
                 }
-            } else {
-                count = 1; // reset count
             }
         }
         false // no non-manifold edges found

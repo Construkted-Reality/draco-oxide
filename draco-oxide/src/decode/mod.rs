@@ -297,8 +297,8 @@ fn build_raw(
 ) -> Result<DecodedRaw, Err> {
     use crate::core::attribute::AttributeType;
     use crate::core::corner_table::GenericCornerTable;
+    use rustc_hash::FxHashMap;
     use std::collections::hash_map::Entry;
-    use std::collections::HashMap;
 
     let num_faces = conn.faces.len();
     let num_corners = num_faces * 3;
@@ -366,7 +366,10 @@ fn build_raw(
     // gives one hash lookup per corner; `CornerTuple::from_slice` reads
     // straight from the flat per-corner table, no per-corner alloc for
     // n_attrs ≤ 4 (the universal case).
-    let mut tuple_to_output: HashMap<CornerTuple, u32> = HashMap::with_capacity(num_corners);
+    // FxHashMap (not SipHash): the per-corner tuple dedup over `num_corners`
+    // (~208k for bunny) dominated the decode profile.
+    let mut tuple_to_output: FxHashMap<CornerTuple, u32> = FxHashMap::default();
+    tuple_to_output.reserve(num_corners);
     let mut tuples: Vec<CornerTuple> = Vec::new();
     let mut indices: Vec<u32> = Vec::with_capacity(num_corners);
     for c in 0..num_corners {
