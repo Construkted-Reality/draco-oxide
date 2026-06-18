@@ -30,11 +30,15 @@ indexmap = "2.0"
 paste = "1.0"
 kiddo = "5.2.4"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-# Native Draco C++ binding used to cross-check decoder output against
-# Google's reference. Builds the bundled C++ library via cxx-build, so
-# adds a few seconds to the first `cargo test` run.
-draco_decoder = "0.0.26"
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native Draco C++ binding used by the `google_compat` test to cross-check
+# decoder output against Google's reference. Opt in with
+# `--features google-compat`. It builds libdraco C++ via cxx-build (slow first
+# build) and the 0.0.26 crate has a relative-path link bug that fails on some
+# setups, so it is gated OUT of the default test run — otherwise it blocks the
+# entire test suite from building, not just google_compat. Optional regular dep
+# (not dev-dep) because Cargo does not support optional dev-dependencies.
+draco_decoder = { version = "0.0.26", optional = true }
 
 [features]
 default = ["obj-loader"]
@@ -42,3 +46,11 @@ evaluation = []
 debug_format = []
 obj-loader = ["dep:tobj"]
 mesh-eq = ["dep:faer"]
+# Enables the google_compat test (pulls the draco_decoder cxx crate).
+google-compat = ["dep:draco_decoder"]
+
+# The diff_against_google example also needs the draco_decoder cxx crate, so it
+# only builds with the google-compat feature.
+[[example]]
+name = "diff_against_google"
+required-features = ["google-compat"]

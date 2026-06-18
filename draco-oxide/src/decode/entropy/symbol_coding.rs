@@ -142,7 +142,7 @@ mod tests {
         symbol_coding::encode_symbols(
             symbols.clone(),
             1,
-            SymbolEncodingMethod::LengthCoded,
+            Some(SymbolEncodingMethod::LengthCoded),
             &mut buffer,
         )
         .unwrap();
@@ -165,7 +165,7 @@ mod tests {
         symbol_coding::encode_symbols(
             symbols.clone(),
             3,
-            SymbolEncodingMethod::LengthCoded,
+            Some(SymbolEncodingMethod::LengthCoded),
             &mut buffer,
         )
         .unwrap();
@@ -188,7 +188,7 @@ mod tests {
         symbol_coding::encode_symbols(
             symbols.clone(),
             1,
-            SymbolEncodingMethod::DirectCoded,
+            Some(SymbolEncodingMethod::DirectCoded),
             &mut buffer,
         )
         .unwrap();
@@ -211,7 +211,7 @@ mod tests {
         symbol_coding::encode_symbols(
             symbols.clone(),
             3,
-            SymbolEncodingMethod::DirectCoded,
+            Some(SymbolEncodingMethod::DirectCoded),
             &mut buffer,
         )
         .unwrap();
@@ -224,5 +224,46 @@ mod tests {
         );
         assert_eq!(decoded_symbols, symbols);
         Ok(())
+    }
+
+    /// Fuzz encode (auto-selected scheme) -> decode over many shapes and value
+    /// ranges to catch tagged/raw byte-layout desyncs the two fixed-input tests
+    /// above miss.
+    #[test]
+    fn fuzz_encode_decode_auto_select() {
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let mut rng = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            seed >> 33
+        };
+        for trial in 0..3000 {
+            let nc = [1usize, 2, 3][(rng() as usize) % 3];
+            let nvals = 1 + (rng() as usize % 250);
+            let maxbits = 1 + (rng() as usize % 18);
+            let mask = if maxbits >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << maxbits) - 1
+            };
+            let symbols: Vec<u64> = (0..nvals * nc).map(|_| rng() & mask).collect();
+
+            let mut buf = Vec::new();
+            symbol_coding::encode_symbols(symbols.clone(), nc, None, &mut buf).unwrap();
+            let mut reader = buf.into_iter();
+            let decoded = decode_symbols(symbols.len(), nc, &mut reader).unwrap_or_else(|e| {
+                panic!("trial {trial} nc={nc} nvals={nvals} maxbits={maxbits}: decode err {e:?}")
+            });
+            assert_eq!(
+                decoded, symbols,
+                "trial {trial} nc={nc} nvals={nvals} maxbits={maxbits}: value mismatch"
+            );
+            assert_eq!(
+                reader.next(),
+                None,
+                "trial {trial} nc={nc} nvals={nvals} maxbits={maxbits}: reader not drained"
+            );
+        }
     }
 }

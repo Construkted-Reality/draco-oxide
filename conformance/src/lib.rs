@@ -107,7 +107,14 @@ pub fn google_encode(obj: &Path, qp: u32, cl: u32, position_only: bool) -> Vec<u
         .arg("-cl")
         .arg(cl.to_string());
     if position_only {
-        cmd.args(["--skip", "NORMAL", "--skip", "TEX_COORD", "--skip", "GENERIC"]);
+        cmd.args([
+            "--skip",
+            "NORMAL",
+            "--skip",
+            "TEX_COORD",
+            "--skip",
+            "GENERIC",
+        ]);
     }
     let status = cmd
         .status()
@@ -134,14 +141,31 @@ pub fn parse_cli_ms(stdout: &str, verb: &str) -> Option<f64> {
 
 /// Like [`google_encode`] but also returns Google's self-reported encode time
 /// in milliseconds (codec-only, no IO), parsed from the CLI output.
-pub fn google_encode_timed(obj: &Path, qp: u32, cl: u32, position_only: bool) -> (Vec<u8>, Option<f64>) {
+pub fn google_encode_timed(
+    obj: &Path,
+    qp: u32,
+    cl: u32,
+    position_only: bool,
+) -> (Vec<u8>, Option<f64>) {
     let out = unique_tmp("drc");
     let mut cmd = Command::new(google_encoder_bin());
-    cmd.arg("-i").arg(obj).arg("-o").arg(&out)
-        .arg("-qp").arg(qp.to_string())
-        .arg("-cl").arg(cl.to_string());
+    cmd.arg("-i")
+        .arg(obj)
+        .arg("-o")
+        .arg(&out)
+        .arg("-qp")
+        .arg(qp.to_string())
+        .arg("-cl")
+        .arg(cl.to_string());
     if position_only {
-        cmd.args(["--skip", "NORMAL", "--skip", "TEX_COORD", "--skip", "GENERIC"]);
+        cmd.args([
+            "--skip",
+            "NORMAL",
+            "--skip",
+            "TEX_COORD",
+            "--skip",
+            "GENERIC",
+        ]);
     }
     let output = cmd.output().expect("run draco_encoder");
     assert!(output.status.success(), "draco_encoder failed on {obj:?}");
@@ -158,14 +182,20 @@ pub fn google_decode_timed(drc: &[u8]) -> (Result<String, String>, Option<f64>) 
     let out_path = unique_tmp("obj");
     std::fs::write(&in_path, drc).expect("write tmp .drc");
     let output = Command::new(google_decoder_bin())
-        .arg("-i").arg(&in_path).arg("-o").arg(&out_path)
+        .arg("-i")
+        .arg(&in_path)
+        .arg("-o")
+        .arg(&out_path)
         .output()
         .expect("run draco_decoder");
     let _ = std::fs::remove_file(&in_path);
     let ms = parse_cli_ms(&String::from_utf8_lossy(&output.stdout), "decode");
     if !output.status.success() {
         let _ = std::fs::remove_file(&out_path);
-        return (Err(String::from_utf8_lossy(&output.stderr).into_owned()), ms);
+        return (
+            Err(String::from_utf8_lossy(&output.stderr).into_owned()),
+            ms,
+        );
     }
     let obj = std::fs::read_to_string(&out_path).unwrap_or_default();
     let _ = std::fs::remove_file(&out_path);

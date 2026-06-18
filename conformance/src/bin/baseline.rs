@@ -60,7 +60,11 @@ fn main() {
     for mesh in mesh_corpus() {
         let obj = mesh_dir().join(mesh);
         let parsed = load_mesh(&obj);
-        let verts = parsed.get_attributes().first().map(|a| a.len()).unwrap_or(0);
+        let verts = parsed
+            .get_attributes()
+            .first()
+            .map(|a| a.len())
+            .unwrap_or(0);
 
         let (g_bytes, g_enc_ms) = google_encode_timed(&obj, QP, CL, false);
 
@@ -79,7 +83,13 @@ fn main() {
         let g_ms = g_enc_ms.unwrap_or(f64::NAN);
         println!(
             "{:<14} {:>7} {:>10} {:>10} {:>6.2}x | {:>9.1} {:>9.2} {:>6}",
-            mesh, verts, g_bytes.len(), o_bytes.len(), size_ratio, g_ms, o_enc_ms,
+            mesh,
+            verts,
+            g_bytes.len(),
+            o_bytes.len(),
+            size_ratio,
+            g_ms,
+            o_enc_ms,
             fmt_ratio(o_enc_ms, g_ms)
         );
     }
@@ -122,7 +132,11 @@ fn main() {
         let g_ms = g_dec_ms.unwrap_or(f64::NAN);
         println!(
             "{:<14} {:>9.2} {:>9.2} {:>6}  {}",
-            mesh, g_ms, o_dec_ms, fmt_ratio(o_dec_ms, g_ms), note
+            mesh,
+            g_ms,
+            o_dec_ms,
+            fmt_ratio(o_dec_ms, g_ms),
+            note
         );
     }
 

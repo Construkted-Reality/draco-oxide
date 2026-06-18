@@ -346,31 +346,32 @@ fn decode_one_attribute<R: ByteReader>(
             if n_components == 2
                 && pred_scheme_id == MESH_PREDICTION_FOR_TEXTURE_COORDINATES_ID =>
         {
-            // attr_table threading regresses our self-roundtrip (since
-            // our encoder doesn't use attribute corner tables for
-            // small meshes) and doesn't fully align with Google's
-            // output either (~0.07-0.20 max L2 on Skyline-style
-            // photogrammetry b3dms). Until both ends are reconciled,
-            // pass None — gives bit-perfect against Google's output
-            // for parallelogram-prediction UVs (3D Tiles
-            // KHR_draco_mesh_compression at default cl), and
-            // ~0.075 self-roundtrip on tetra.
-            let _attr_table_unused = attr_table;
+            // Thread the per-attribute corner table through exactly like the
+            // normal path does. `attr_table` is `Some` only for seam-split UV
+            // meshes (the dispatcher resolves it from `meta.decoder_id`), so
+            // non-seamed meshes — the common 3D Tiles parallelogram-UV interop
+            // case — are unaffected (still `None`). For seam-split meshes the
+            // encoder writes the seam-split UV vertex count via the attribute
+            // corner table, so the decoder must size the symbol stream the same
+            // way or it desyncs the reader (silently wrong values on the
+            // length-framed raw scheme, a hard panic once the tagged scheme is
+            // selected for the UV residuals).
             let att = decode_uv_attribute(
                 reader,
                 meta,
                 corner_table,
-                None,
+                attr_table,
                 start_corners,
                 num_position_vertices,
                 xform_kind,
                 positions_by_ct_vertex,
             )?;
-            // OVERRIDE: even though the bitstream said use
-            // attribute_corner_tables[meta.decoder_id], we forced
-            // None above. Tell callers to index via the universal
-            // corner table.
-            Ok((att, None, None))
+            let effective = if attr_table.is_some() {
+                meta.decoder_id
+            } else {
+                None
+            };
+            Ok((att, None, effective))
         }
         // TextureCoordinate fallback for parallelogram-style predictions.
         (AttributeType::TextureCoordinate, PortabilizationType::QuantizationCoordinateWise)

@@ -605,6 +605,11 @@ fn decode_to_raw_handles_duplicate_position_values() {
 /// per-coord error is `s / (2^11 - 1)`, so L2 per-vertex error is
 /// roughly `sqrt(3) * s / 2047`.
 #[test]
+#[ignore = "slow: diff_l2_norm is O(points*faces) ~= 4.8B point-to-face ops on \
+            34k-vert / 69k-face bunny (minutes even in release). Round-trip \
+            correctness is covered by the smaller meshes here and by the \
+            conformance interop/roundtrip gates. TODO: give diff_l2_norm a \
+            spatial index (a face BVH or the existing kiddo KD-tree)."]
 fn positions_round_trip_bunny() {
     let original = load_obj(BUNNY_PATH).expect("load bunny.obj");
 

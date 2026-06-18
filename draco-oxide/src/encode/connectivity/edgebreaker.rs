@@ -898,7 +898,10 @@ impl Traversal for ValenceTraversal {
                 .map(|&s| s.get_id() as u64)
                 .collect::<Vec<_>>();
 
-            encode_symbols(context, 1, SymbolEncodingMethod::DirectCoded, writer)?;
+            // Connectivity symbols stay on the raw scheme: Google's selection
+            // also resolves to raw for these in every case we measured, and this
+            // keeps the connectivity decode path unchanged.
+            encode_symbols(context, 1, Some(SymbolEncodingMethod::DirectCoded), writer)?;
         }
 
         Ok(())

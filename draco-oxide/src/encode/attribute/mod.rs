@@ -75,8 +75,10 @@ where
         // thread it down into the nested portabilization::Config.
         if let Some(eq) = cfg.explicit_quantization.get(&ty) {
             if let Some(group) = enc_cfg.group_cfgs.first_mut() {
-                group.prediction_transform.portabilization.explicit_quantization =
-                    Some(eq.clone());
+                group
+                    .prediction_transform
+                    .portabilization
+                    .explicit_quantization = Some(eq.clone());
             }
         } else if let Some(&bits) = cfg.quantization_bits.get(&ty) {
             // Override only the bit count; the automatic per-mesh bbox scan
@@ -86,18 +88,14 @@ where
             // attribute_encoder (which would otherwise reset the per-type
             // default bits).
             if let Some(group) = enc_cfg.group_cfgs.first_mut() {
-                group.prediction_transform.portabilization.quantization_bits_override =
-                    Some(bits);
+                group
+                    .prediction_transform
+                    .portabilization
+                    .quantization_bits_override = Some(bits);
             }
         }
-        let encoder = attribute_encoder::AttributeEncoder::new(
-            att,
-            i,
-            &parents,
-            &conn_out,
-            writer,
-            enc_cfg,
-        );
+        let encoder =
+            attribute_encoder::AttributeEncoder::new(att, i, &parents, &conn_out, writer, enc_cfg);
 
         let port_att = encoder.encode::<true, false>()?;
         port_atts.push(port_att);

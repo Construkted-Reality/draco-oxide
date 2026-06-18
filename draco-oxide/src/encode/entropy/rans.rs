@@ -221,18 +221,28 @@ where
         while i < num_symbols {
             let freq = distribution[i];
             if freq == 0 {
-                // when we find a symbol with zero frequency, we encode the flag (1-bit) and the
-                // 6-bit offset to the next symbol with non-zero frequency.
+                // Zero-probability run: low two bits = 3, high six bits = the
+                // offset to the next non-zero symbol, capped at 63. The decoder
+                // zeros `[i..=i+offset]` and advances `offset + 1`. Mirrors
+                // Google's `EncodeTable` (`rans_symbol_encoder.h`).
+                //
+                // The previous code allowed `offset == 64` (overflowing the
+                // `<< 2` into a 0 byte) and only advanced `i` when a non-zero
+                // symbol was found within range — so any zero-run longer than 63
+                // degraded to one table byte per zero, bloating the frequency
+                // table to O(max_value) instead of O(num_unique). That was the
+                // residual size gap on sparse high-bit-depth attributes. The
+                // last symbol always has non-zero frequency, so `i + offset + 1`
+                // never runs off the end.
                 let mut offset = 0;
-                while offset < (1 << 6) && i + offset + 1 < num_symbols {
-                    let next_prob = distribution[i + offset + 1];
-                    if next_prob > 0 {
-                        i += offset;
+                while offset < (1 << 6) - 1 {
+                    if distribution[i + offset + 1] > 0 {
                         break;
                     }
                     offset += 1;
                 }
                 writer.write_u8(((offset as u8) << 2) | 3);
+                i += offset;
             } else {
                 let mut num_extra_bytes = 0;
                 if freq >= (1 << 6) {

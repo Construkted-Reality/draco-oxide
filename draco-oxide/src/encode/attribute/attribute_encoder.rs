@@ -9,7 +9,6 @@ use crate::encode::entropy::symbol_coding::encode_symbols;
 use crate::prelude::{AttributeType, ByteWriter, ConfigType};
 use crate::shared::attribute::sequence::Traverser;
 use crate::shared::attribute::Portable;
-use crate::shared::entropy::SymbolEncodingMethod;
 use thiserror::Error;
 
 #[cfg(feature = "evaluation")]
@@ -314,13 +313,20 @@ where
         // encode::Config's per-attribute explicit_quantization map reach
         // the QuantizationCoordinateWise constructor.
         if let Some(group) = self.cfg.group_cfgs.first() {
-            if let Some(ref eq) = group.prediction_transform.portabilization.explicit_quantization {
+            if let Some(ref eq) = group
+                .prediction_transform
+                .portabilization
+                .explicit_quantization
+            {
                 por_cfg.explicit_quantization = Some(eq.clone());
             }
             // Caller-supplied bit-count override (set_attribute_quantization_bits).
             // Applied on top of the per-type default from default_for above, so
             // it changes only the bit count and keeps the automatic bbox scan.
-            if let Some(bits) = group.prediction_transform.portabilization.quantization_bits_override
+            if let Some(bits) = group
+                .prediction_transform
+                .portabilization
+                .quantization_bits_override
             {
                 por_cfg.quantization_bits = bits;
             }
@@ -411,7 +417,9 @@ where
                 .iter()
                 .flat_map(|v| (0..N).map(|i| *v.get(i) as u64))
                 .collect::<Vec<_>>();
-            encode_symbols(symbols, N, SymbolEncodingMethod::DirectCoded, self.writer)?;
+            // Let the encoder pick tagged vs raw (None) like Google's
+            // EncodeSymbols, instead of hardcoding raw.
+            encode_symbols(symbols, N, None, self.writer)?;
         } else {
             // If RANS encoding is not used, we write the output directly
             for value in output {

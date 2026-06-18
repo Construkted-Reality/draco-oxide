@@ -40,8 +40,16 @@ fn encode_output_is_byte_stable() {
     // schemes; sphere/torus/bunny exercise position (parallelogram) at scale
     // and over handle topology (torus).
     let cases: &[(&str, usize, u64)] = &[
-        ("tests/data/tetrahedron.obj", EXPECT_TETRA_LEN, EXPECT_TETRA_HASH),
-        ("tests/data/sphere.obj", EXPECT_SPHERE_LEN, EXPECT_SPHERE_HASH),
+        (
+            "tests/data/tetrahedron.obj",
+            EXPECT_TETRA_LEN,
+            EXPECT_TETRA_HASH,
+        ),
+        (
+            "tests/data/sphere.obj",
+            EXPECT_SPHERE_LEN,
+            EXPECT_SPHERE_HASH,
+        ),
         ("tests/data/torus.obj", EXPECT_TORUS_LEN, EXPECT_TORUS_HASH),
         ("tests/data/bunny.obj", EXPECT_BUNNY_LEN, EXPECT_BUNNY_HASH),
     ];
@@ -60,11 +68,16 @@ fn encode_output_is_byte_stable() {
     }
 }
 
-const EXPECT_TETRA_LEN: usize = 846;
-const EXPECT_TETRA_HASH: u64 = 620833109304232433;
-const EXPECT_SPHERE_LEN: usize = 1962;
-const EXPECT_SPHERE_HASH: u64 = 11855373330842349000;
-const EXPECT_TORUS_LEN: usize = 4181;
-const EXPECT_TORUS_HASH: u64 = 8060327790296598891;
-const EXPECT_BUNNY_LEN: usize = 78933;
-const EXPECT_BUNNY_HASH: u64 = 6236277559521459486;
+// Regenerated 2026-06-17 after the adaptive symbol-scheme-selection + rANS
+// frequency-table run-length fix (encode/entropy/{symbol_coding,rans}.rs).
+// Output legitimately shrank (e.g. tetra 846->191, sphere 1962->587) and now
+// matches Google's scheme choices. Regenerate with
+// `DUMP_ENCODE_FINGERPRINTS=1 cargo test -p draco-oxide --test encode_byte_stability -- --nocapture`.
+const EXPECT_TETRA_LEN: usize = 191;
+const EXPECT_TETRA_HASH: u64 = 11048745526963757722;
+const EXPECT_SPHERE_LEN: usize = 587;
+const EXPECT_SPHERE_HASH: u64 = 12453140805598858806;
+const EXPECT_TORUS_LEN: usize = 3414;
+const EXPECT_TORUS_HASH: u64 = 5534464170143516006;
+const EXPECT_BUNNY_LEN: usize = 78507;
+const EXPECT_BUNNY_HASH: u64 = 9812883521976011308;

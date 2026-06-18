@@ -4,8 +4,8 @@
 //! (in-process C++) is added once the `draco_decoder` cxx link is fixed; until
 //! then compare against `tests/perf.rs`'s CLI baseline.
 
-use criterion::{criterion_group, criterion_main, Criterion};
 use conformance::{load_mesh, mesh_dir, oxide_encode_mesh};
+use criterion::{criterion_group, criterion_main, Criterion};
 
 fn bench_encode(c: &mut Criterion) {
     let obj = mesh_dir().join("bunny.obj");
