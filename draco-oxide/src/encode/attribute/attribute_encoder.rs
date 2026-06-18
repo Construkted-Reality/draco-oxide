@@ -164,6 +164,11 @@ pub(super) struct AttributeEncoder<'parents, 'encoder, 'writer, 'co, 'mesh, W> {
     writer: &'writer mut W,
     parents: &'encoder [&'parents Attribute],
     conn_out: &'co ConnectivityEncoderOutput<'mesh>,
+    /// The universal-connectivity attribute-encoding corner sequence, computed
+    /// once by the caller and shared across attributes. Reused for any attribute
+    /// that has no interior seams (its per-attribute traversal is identical);
+    /// `None` falls back to computing the sequence here.
+    universal_sequence: Option<&'encoder [CornerIdx]>,
 }
 
 impl<'parents, 'encoder, 'writer, 'co, 'mesh, W>
@@ -179,6 +184,7 @@ where
         conn_out: &'co ConnectivityEncoderOutput<'mesh>,
         writer: &'writer mut W,
         cfg: Config,
+        universal_sequence: Option<&'encoder [CornerIdx]>,
     ) -> Self {
         AttributeEncoder {
             att,
@@ -187,6 +193,7 @@ where
             writer,
             parents,
             conn_out,
+            universal_sequence,
         }
     }
 
@@ -249,30 +256,50 @@ where
         if !BOOST {
             match self.conn_out {
                 ConnectivityEncoderOutput::Edgebreaker(edgebreaker_out) => {
-                    if let Some(corner_table) = edgebreaker_out
-                        .corner_table
-                        .attribute_corner_table(self.att_data_id)
+                    let universal_sequence = self.universal_sequence;
+                    let att_data_id = self.att_data_id;
+                    if let Some(corner_table) =
+                        edgebreaker_out.corner_table.attribute_corner_table(att_data_id)
                     {
-                        let sequence = Traverser::new(
-                            &corner_table,
-                            edgebreaker_out.corners_of_edgebreaker.clone(), // ToDo: take this value
-                        )
-                        .compute_sequence();
-                        self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
-                            &corner_table,
-                            sequence.into_iter(),
-                        )
+                        // No interior seams => this attribute's traversal order is
+                        // identical to the universal one; reuse the shared sequence
+                        // instead of recomputing it (a measured ~5% of encode).
+                        let no_seams = edgebreaker_out.corner_table.no_interior_seams(att_data_id)
+                            == Some(true);
+                        if let (true, Some(seq)) = (no_seams, universal_sequence) {
+                            self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
+                                &corner_table,
+                                seq.iter().copied(),
+                            )
+                        } else {
+                            let sequence = Traverser::new(
+                                &corner_table,
+                                edgebreaker_out.corners_of_edgebreaker.clone(),
+                            )
+                            .compute_sequence();
+                            self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
+                                &corner_table,
+                                sequence.into_iter(),
+                            )
+                        }
                     } else {
                         let corner_table = edgebreaker_out.corner_table.universal_corner_table();
-                        let sequence = Traverser::new(
-                            corner_table,
-                            edgebreaker_out.corners_of_edgebreaker.clone(), // ToDo: take this value
-                        )
-                        .compute_sequence();
-                        self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
-                            corner_table,
-                            sequence.into_iter(),
-                        )
+                        if let Some(seq) = universal_sequence {
+                            self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
+                                corner_table,
+                                seq.iter().copied(),
+                            )
+                        } else {
+                            let sequence = Traverser::new(
+                                corner_table,
+                                edgebreaker_out.corners_of_edgebreaker.clone(),
+                            )
+                            .compute_sequence();
+                            self.encode_impl_edgebreaker::<WRITE_NOW, _, _, NdVector<N, T>, N>(
+                                corner_table,
+                                sequence.into_iter(),
+                            )
+                        }
                     }
                 }
                 ConnectivityEncoderOutput::Sequential(_) => {

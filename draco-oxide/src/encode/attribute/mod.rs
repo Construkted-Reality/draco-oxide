@@ -2,8 +2,10 @@ pub(crate) mod attribute_encoder;
 pub(crate) mod portabilization;
 pub(crate) mod prediction_transform;
 
+use crate::core::shared::CornerIdx;
 use crate::encode::attribute::portabilization::PortabilizationType;
 use crate::encode::connectivity::ConnectivityEncoderOutput;
+use crate::shared::attribute::sequence::Traverser;
 #[cfg(feature = "evaluation")]
 use crate::eval;
 
@@ -82,6 +84,20 @@ where
         PortabilizationType::default_for(att.get_attribute_type()).write_to(writer);
     }
 
+    // Compute the attribute-encoding corner sequence ONCE over the universal
+    // connectivity. Every attribute with no interior seams has an identical
+    // traversal order and reuses this (see AttributeEncoder); only seam
+    // attributes recompute. Previously each attribute recomputed it (~5% of
+    // encode for a 2-attribute mesh like bunny).
+    let universal_sequence: Vec<CornerIdx> = match &conn_out {
+        ConnectivityEncoderOutput::Edgebreaker(out) => Traverser::new(
+            out.corner_table.universal_corner_table(),
+            out.corners_of_edgebreaker.clone(),
+        )
+        .compute_sequence(),
+        ConnectivityEncoderOutput::Sequential(_) => Vec::new(),
+    };
+
     for (i, att) in atts.into_iter().enumerate() {
         #[cfg(feature = "evaluation")]
         eval::scope_begin("attribute", writer);
@@ -119,8 +135,15 @@ where
                     .quantization_bits_override = Some(bits);
             }
         }
-        let encoder =
-            attribute_encoder::AttributeEncoder::new(att, i, &parents, &conn_out, writer, enc_cfg);
+        let encoder = attribute_encoder::AttributeEncoder::new(
+            att,
+            i,
+            &parents,
+            &conn_out,
+            writer,
+            enc_cfg,
+            Some(&universal_sequence),
+        );
 
         let port_att = encoder.encode::<true, false>()?;
         port_atts.push(port_att);
