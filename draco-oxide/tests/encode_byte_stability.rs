@@ -73,14 +73,14 @@ fn encode_output_is_byte_stable() {
 // Output legitimately shrank (e.g. tetra 846->191, sphere 1962->587) and now
 // matches Google's scheme choices. Regenerate with
 // `DUMP_ENCODE_FINGERPRINTS=1 cargo test -p draco-oxide --test encode_byte_stability -- --nocapture`.
-const EXPECT_TETRA_LEN: usize = 191;
-const EXPECT_TETRA_HASH: u64 = 10895554424143992328;
-const EXPECT_SPHERE_LEN: usize = 587;
-const EXPECT_SPHERE_HASH: u64 = 271822297800695506;
+const EXPECT_TETRA_LEN: usize = 198;
+const EXPECT_TETRA_HASH: u64 = 8804551362202899940;
+const EXPECT_SPHERE_LEN: usize = 601;
+const EXPECT_SPHERE_HASH: u64 = 1832050087026496019;
 // torus and bunny (>= 1000 faces) now use VALENCE Edgebreaker at cl7/speed3,
 // matching Google; their connectivity is byte-identical to Google and the
 // output shrank (torus 3414->2490 == Google, bunny 78507->66567).
 const EXPECT_TORUS_LEN: usize = 2490;
 const EXPECT_TORUS_HASH: u64 = 6189417996939192234;
-const EXPECT_BUNNY_LEN: usize = 66557;
-const EXPECT_BUNNY_HASH: u64 = 17323674209165957413;
+const EXPECT_BUNNY_LEN: usize = 68192;
+const EXPECT_BUNNY_HASH: u64 = 17956540085175276762;

@@ -1,7 +1,7 @@
 use crate::core::shared::AttributeValueIdx;
+use crate::core::shared::DataValue;
 use crate::core::shared::Vector;
-use crate::encode::attribute::prediction_transform::geom::into_faithful_oct_quantization;
-use crate::encode::attribute::prediction_transform::geom::octahedral_transform;
+use crate::shared::attribute::octahedron_toolbox::OctahedronToolBox;
 use crate::prelude::Attribute;
 use crate::prelude::AttributeType;
 use crate::prelude::ByteWriter;
@@ -47,21 +47,19 @@ where
     }
 
     fn portabilize_value(&mut self, val: Data) -> NdVector<2, i32> {
-        let val_oct = octahedral_transform(val) + NdVector::<2, f32>::from([1.0, 1.0]);
-        debug_assert!(
-            *val_oct.get(0) >= 0.0
-                && *val_oct.get(0) <= 2.0
-                && *val_oct.get(1) >= 0.0
-                && *val_oct.get(1) <= 2.0,
-            "Octahedral transformed value out of bounds: {:?}",
-            val_oct
-        );
-        let quantized = val_oct * ((1 << (self.quantization_bits - 1)) - 1) as f32;
-        let mut out = NdVector::<2, i32>::zero();
-        for i in 0..2 {
-            *out.get_mut(i) = *quantized.get(i) as i32;
-        }
-        into_faithful_oct_quantization(out)
+        // Round-half-up integer octahedral quantization, byte-exact with Google
+        // (FloatVectorToQuantizedOctahedralCoords). The previous path projected
+        // to float and truncated, producing off-by-one (s,t) vs Google.
+        let toolbox = OctahedronToolBox::new(self.quantization_bits);
+        let v = unsafe {
+            [
+                val.get_unchecked(0).to_f64(),
+                val.get_unchecked(1).to_f64(),
+                val.get_unchecked(2).to_f64(),
+            ]
+        };
+        let (s, t) = toolbox.float_vector_to_quantized_octahedral_coords(v);
+        NdVector::<2, i32>::from([s, t])
     }
 }
 

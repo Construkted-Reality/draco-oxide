@@ -16,4 +16,4 @@ analyzer/outputs
 draco-oxide/tests/outputs
 
 # private test data
-private_tests
+private_tests.claude/
