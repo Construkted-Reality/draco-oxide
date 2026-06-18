@@ -349,19 +349,6 @@ impl<'mesh> CornerTable<'mesh> {
         let mut visited_vertices = VecVertexIdx::from(vec![false; self.num_vertices()]);
         let mut visited_corners = VecCornerIdx::from(vec![false; self.num_corners()]);
 
-        {
-            let mut vertices = VecVertexIdx::from(vec![false; self.num_vertices()]);
-            for f_idx in 0..self.get_mesh_faces().len() {
-                for i in 0..3 {
-                    let c = CornerIdx::from(3 * f_idx + i);
-                    let v = self.vertex_idx(c);
-                    if !vertices[v] {
-                        vertices[v] = true;
-                    }
-                }
-            }
-        }
-
         for f_idx in 0..self.get_mesh_faces().len() {
             for i in 0..3 {
                 let c = CornerIdx::from(3 * f_idx + i);
