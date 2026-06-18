@@ -74,7 +74,7 @@ fn encode_output_is_byte_stable() {
 // matches Google's scheme choices. Regenerate with
 // `DUMP_ENCODE_FINGERPRINTS=1 cargo test -p draco-oxide --test encode_byte_stability -- --nocapture`.
 const EXPECT_TETRA_LEN: usize = 191;
-const EXPECT_TETRA_HASH: u64 = 11048745526963757722;
+const EXPECT_TETRA_HASH: u64 = 10895554424143992328;
 const EXPECT_SPHERE_LEN: usize = 587;
 const EXPECT_SPHERE_HASH: u64 = 12453140805598858806;
 const EXPECT_TORUS_LEN: usize = 3414;

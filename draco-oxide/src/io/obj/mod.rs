@@ -42,19 +42,23 @@ pub fn load_obj<P: AsRef<Path> + Debug>(path: P) -> Result<Mesh, Err> {
         AttributeDomain::Position,
         vec![],
     );
-    if !normals.is_empty() {
-        builder.add_attribute(
-            normals,
-            AttributeType::Normal,
-            normals_domain_ty,
-            vec![pos_att_id],
-        );
-    }
+    // Match Google's obj_decoder attribute order (POSITION, TEX_COORD, NORMAL,
+    // see io/obj_decoder.cc:148-163) so the encoded attribute sub-streams line
+    // up byte-for-byte. Draco emits per-attribute data in mesh order, so the
+    // loader's insertion order is what determines bitstream order.
     if !tex_coords.is_empty() {
         builder.add_attribute(
             tex_coords,
             AttributeType::TextureCoordinate,
             tex_coords_domain_ty,
+            vec![pos_att_id],
+        );
+    }
+    if !normals.is_empty() {
+        builder.add_attribute(
+            normals,
+            AttributeType::Normal,
+            normals_domain_ty,
             vec![pos_att_id],
         );
     }

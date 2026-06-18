@@ -171,22 +171,10 @@ mod tests {
             vec![3, 1, 0, 2]
         );
 
-        let ct_nor = &ct.attribute_corner_table(1).unwrap();
-        let sequence_normals = Traverser::new(ct_nor, corners.clone())
-            .compute_sequence()
-            .iter()
-            .map(|c| ct_nor.point_idx(*c))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            sequence_normals
-                .into_iter()
-                .map(usize::from)
-                .collect::<Vec<_>>(),
-            vec![3, 1, 0, 2]
-        );
-
-        let ct_tex = &ct.attribute_corner_table(2).unwrap();
-        let sequence_tex_coords = Traverser::new(ct_tex, corners)
+        // attr index 1 is now TEXCOORD (6 seam-split verts), index 2 is NORMAL
+        // (4) — the OBJ loader inserts TEXCOORD before NORMAL to match Google.
+        let ct_tex = &ct.attribute_corner_table(1).unwrap();
+        let sequence_tex_coords = Traverser::new(ct_tex, corners.clone())
             .compute_sequence()
             .iter()
             .map(|c| ct_tex.point_idx(*c))
@@ -197,6 +185,20 @@ mod tests {
                 .map(usize::from)
                 .collect::<Vec<_>>(),
             vec![3, 1, 0, 2, 5, 4]
+        );
+
+        let ct_nor = &ct.attribute_corner_table(2).unwrap();
+        let sequence_normals = Traverser::new(ct_nor, corners)
+            .compute_sequence()
+            .iter()
+            .map(|c| ct_nor.point_idx(*c))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sequence_normals
+                .into_iter()
+                .map(usize::from)
+                .collect::<Vec<_>>(),
+            vec![3, 1, 0, 2]
         );
     }
 
@@ -288,10 +290,12 @@ mod tests {
     }
 
     // Captured from the pre-optimization implementation. Format: (attr_idx, len, fnv1a_digest).
+    // attr 1 = TEXCOORD (6 seam-split verts), attr 2 = NORMAL (4) — the OBJ
+    // loader now inserts TEXCOORD before NORMAL to match Google's order.
     const EXPECT_TETRAHEDRON: &[(usize, usize, u64)] = &[
         (0, 4, 18054049684469353541),
-        (1, 4, 18054049684469353541),
-        (2, 6, 3159456026337658052),
+        (1, 6, 3159456026337658052),
+        (2, 4, 18054049684469353541),
     ];
     const EXPECT_SPHERE: &[(usize, usize, u64)] = &[
         (0, 114, 17737425019064467876),
