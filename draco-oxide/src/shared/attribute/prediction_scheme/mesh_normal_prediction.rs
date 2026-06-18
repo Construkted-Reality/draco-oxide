@@ -200,7 +200,11 @@ where
             .clamp(1, 255) as u8;
         let mut rabs_coder: RabsCoder = RabsCoder::new(zero_prob as usize, None);
         writer.write_u8(zero_prob);
-        for &b in &self.flips {
+        // rABS is LIFO: Google's RAnsBitEncoder::EndEncoding encodes the bits in
+        // reverse so the decoder pops them back in forward (vertex) order. Encode
+        // flips reversed to (a) byte-match Google and (b) fix the round-trip — the
+        // previous forward encode made the decoder read the flips reversed.
+        for &b in self.flips.iter().rev() {
             // Encode each flip as a single bit
             rabs_coder.write(if b { 1 } else { 0 })?;
         }
