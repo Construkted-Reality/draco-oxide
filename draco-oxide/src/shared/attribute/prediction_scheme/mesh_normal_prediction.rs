@@ -10,8 +10,13 @@ use crate::prelude::{AttributeType, NdVector};
 
 pub(crate) struct MeshNormalPrediction<'parents, C, const N: usize> {
     corner_table: &'parents C,
-    pos: &'parents Attribute,
     flips: Vec<bool>,
+    /// Per-face integer normal (the raw i64 cross product), precomputed once.
+    /// The area-weighted predictor sums each face's normal once per incident
+    /// vertex ring, so without this each face normal was recomputed ~3× (once
+    /// per vertex of the face). The cross product is identical from any corner
+    /// of a face, so caching is byte-identical.
+    face_normals: Vec<NdVector<3, i64>>,
 }
 
 impl<'parents, C, const N: usize> MeshNormalPrediction<'parents, C, N>
@@ -19,17 +24,18 @@ where
     C: GenericCornerTable,
     NdVector<N, i32>: Vector<N, Component = i32>,
 {
-    fn compute_normal_of_face(&self, c: CornerIdx, pos_c: NdVector<3, i32>) -> NdVector<3, i64> {
+    fn compute_normal_of_face(
+        corner_table: &C,
+        pos: &Attribute,
+        c: CornerIdx,
+        pos_c: NdVector<3, i32>,
+    ) -> NdVector<3, i64> {
         // corners.
-        let c_next = self.corner_table.next(c);
-        let c_prev = self.corner_table.previous(c);
+        let c_next = corner_table.next(c);
+        let c_prev = corner_table.previous(c);
 
-        let pos_next = self
-            .pos
-            .get::<NdVector<3, i32>, 3>(self.corner_table.point_idx(c_next));
-        let pos_prev = self
-            .pos
-            .get::<NdVector<3, i32>, 3>(self.corner_table.point_idx(c_prev));
+        let pos_next = pos.get::<NdVector<3, i32>, 3>(corner_table.point_idx(c_next));
+        let pos_prev = pos.get::<NdVector<3, i32>, 3>(corner_table.point_idx(c_prev));
 
         // Widen positions to i64 BEFORE differencing/crossing. Google's
         // `MeshPredictionSchemeGeometricNormalPredictorArea::ComputePredictedValue`
@@ -72,10 +78,20 @@ where
             parents[0].get_attribute_type() == AttributeType::Position,
             "MeshNormalPrediction requires the first parent attribute to be of type Position."
         );
+        let pos = parents[0]; // we made sure that the first parent is the position attribute
+        // Precompute each face's normal once (corner 3*f is face f's first
+        // corner; the cross product is the same from any corner of the face).
+        let num_faces = corner_table.num_faces();
+        let mut face_normals = Vec::with_capacity(num_faces);
+        for f in 0..num_faces {
+            let c = CornerIdx::from(f * 3);
+            let pos_c = pos.get::<NdVector<3, i32>, 3>(corner_table.point_idx(c));
+            face_normals.push(Self::compute_normal_of_face(corner_table, pos, c, pos_c));
+        }
         Self {
             corner_table,
-            pos: parents[0], // we made sure that the first parent is the position attribute
             flips: Vec::new(),
+            face_normals,
         }
     }
 
@@ -92,8 +108,6 @@ where
         _vertices_up_till_now: &[VertexIdx],
         attribute: &Attribute,
     ) -> NdVector<N, i32> {
-        let pos_c = self.pos.get(self.corner_table.point_idx(c));
-
         // Iterate the corners around the vertex in EXACTLY Google's
         // `VertexCornersIterator` order (corner_table_iterators.h:210-262):
         // start at `c`, swing-LEFT accumulating until a boundary (then switch
@@ -104,14 +118,17 @@ where
         // "walk to leftmost, then swing right" approach for open vertices, so
         // we mirror the iterator verbatim. The decoder's `predict_normal` uses
         // the same order; the two MUST agree for byte-identical output.
-        let mut sum = self.compute_normal_of_face(c, pos_c);
+        let face_normal = |cc: CornerIdx| {
+            self.face_normals[usize::from(self.corner_table.face_idx_containing(cc))]
+        };
+        let mut sum = face_normal(c);
         let mut curr_c = c;
         loop {
             match self.corner_table.swing_left(curr_c) {
                 Some(next) if next == c => break, // looped back: closed ring done.
                 Some(next) => {
                     curr_c = next;
-                    sum += self.compute_normal_of_face(curr_c, pos_c);
+                    sum += face_normal(curr_c);
                 }
                 None => {
                     // Open boundary reached on the left — switch to swinging
@@ -119,7 +136,7 @@ where
                     let mut r = c;
                     while let Some(rn) = self.corner_table.swing_right(r) {
                         r = rn;
-                        sum += self.compute_normal_of_face(r, pos_c);
+                        sum += face_normal(r);
                     }
                     break;
                 }
