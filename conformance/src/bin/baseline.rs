@@ -16,14 +16,14 @@
 use conformance::*;
 use std::time::Instant;
 
-const ITERS: u32 = 9;
+const ITERS: u32 = 50;
 const QP: u32 = 11;
 const CL: u32 = 7;
 
-/// Google's CLI reports integer milliseconds, so sub-ms meshes read as 0 and
-/// the ratio is meaningless. Show "n/a" rather than a bogus "inf".
+/// Below ~50 us the min-of-N measurement is dominated by system noise, so the
+/// ratio is not meaningful — show "n/a" rather than a bogus number.
 fn fmt_ratio(oxide_ms: f64, google_ms: f64) -> String {
-    if !google_ms.is_finite() || google_ms < 0.5 {
+    if !google_ms.is_finite() || google_ms < 0.05 {
         "n/a".to_string()
     } else {
         format!("{:.1}x", oxide_ms / google_ms)
@@ -41,6 +41,24 @@ fn min_ms(iters: u32, mut f: impl FnMut()) -> f64 {
 }
 
 fn main() {
+    // Prefer the instrumented Google tools (high-resolution `[PERF] *_us=`
+    // min-of-N codec timing) over the stock integer-ms CLI, and ask them to
+    // loop ITERS times so both sides use the same min-of-N methodology.
+    let inst = workspace_root()
+        .parent()
+        .map(|p| p.join("google-draco-reference/build_instrumented"));
+    if let Some(inst) = inst {
+        let enc = inst.join("draco_encoder");
+        let dec = inst.join("draco_decoder");
+        if enc.exists() {
+            std::env::set_var("DRACO_ENCODER", &enc);
+        }
+        if dec.exists() {
+            std::env::set_var("DRACO_DECODER", &dec);
+        }
+    }
+    std::env::set_var("DRACO_PERF_ITERS", ITERS.to_string());
+
     let profile = if cfg!(debug_assertions) {
         "DEBUG (run --release for real numbers!)"
     } else {

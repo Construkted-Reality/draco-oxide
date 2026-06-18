@@ -139,8 +139,23 @@ pub fn parse_cli_ms(stdout: &str, verb: &str) -> Option<f64> {
     num.chars().rev().collect::<String>().parse().ok()
 }
 
+/// Parse the high-resolution `[PERF] <verb>_us=<n>` line the instrumented Google
+/// tools print to stderr (min-of-N in-process codec time, microseconds), and
+/// return it in milliseconds. `None` if not present (e.g. stock binaries).
+pub fn parse_perf_us_ms(stderr: &str, verb: &str) -> Option<f64> {
+    let marker = format!("[PERF] {verb}_us=");
+    let i = stderr.find(&marker)? + marker.len();
+    let num: String = stderr[i..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    num.parse::<f64>().ok().map(|us| us / 1000.0)
+}
+
 /// Like [`google_encode`] but also returns Google's self-reported encode time
-/// in milliseconds (codec-only, no IO), parsed from the CLI output.
+/// in milliseconds (codec-only, no IO). Prefers the instrumented `[PERF]`
+/// microsecond line (set `DRACO_PERF_ITERS` for min-of-N), falling back to the
+/// stock CLI's integer-ms `... ms to encode`.
 pub fn google_encode_timed(
     obj: &Path,
     qp: u32,
@@ -169,7 +184,9 @@ pub fn google_encode_timed(
     }
     let output = cmd.output().expect("run draco_encoder");
     assert!(output.status.success(), "draco_encoder failed on {obj:?}");
-    let ms = parse_cli_ms(&String::from_utf8_lossy(&output.stdout), "encode");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let ms = parse_perf_us_ms(&stderr, "encode")
+        .or_else(|| parse_cli_ms(&String::from_utf8_lossy(&output.stdout), "encode"));
     let bytes = std::fs::read(&out).expect("read google .drc");
     let _ = std::fs::remove_file(&out);
     (bytes, ms)
@@ -189,7 +206,9 @@ pub fn google_decode_timed(drc: &[u8]) -> (Result<String, String>, Option<f64>) 
         .output()
         .expect("run draco_decoder");
     let _ = std::fs::remove_file(&in_path);
-    let ms = parse_cli_ms(&String::from_utf8_lossy(&output.stdout), "decode");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let ms = parse_perf_us_ms(&stderr, "decode")
+        .or_else(|| parse_cli_ms(&String::from_utf8_lossy(&output.stdout), "decode"));
     if !output.status.success() {
         let _ = std::fs::remove_file(&out_path);
         return (
