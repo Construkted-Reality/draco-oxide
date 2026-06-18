@@ -65,20 +65,28 @@ where
     // (alias-resolved) corner-table vertex IDs, which can include "real"
     // IDs above num_position_vertices when add_new_vertex outpaces S-merges.
     // Build remap[old_vertex_id] = rank-among-unique-face-IDs and apply.
-    let sorted_ids: Vec<usize> = {
-        let mut s = std::collections::BTreeSet::new();
-        for f in &conn.faces {
-            for v in f {
-                s.insert(usize::from(*v));
-            }
+    // remap[old_vertex_id] = rank among the unique face vertex IDs in ascending
+    // order. Built with linear passes (find max, mark present, assign ranks)
+    // instead of a BTreeSet — the BTreeSet's O(n log n) cache-missing inserts
+    // over ~3*num_faces IDs were the single hottest loop in the decode profile.
+    let mut max_id = 0usize;
+    for f in &conn.faces {
+        for v in f {
+            max_id = max_id.max(usize::from(*v));
         }
-        s.into_iter().collect()
-    };
-
-    let max_id = sorted_ids.last().copied().unwrap_or(0);
+    }
     let mut remap = vec![usize::MAX; max_id + 1];
-    for (rank, &id) in sorted_ids.iter().enumerate() {
-        remap[id] = rank;
+    for f in &conn.faces {
+        for v in f {
+            remap[usize::from(*v)] = 0; // mark present
+        }
+    }
+    let mut next_rank = 0usize;
+    for slot in remap.iter_mut() {
+        if *slot != usize::MAX {
+            *slot = next_rank;
+            next_rank += 1;
+        }
     }
 
     let mut mesh = Mesh::new();
@@ -310,21 +318,29 @@ fn build_raw(
     // Position attribute values are output in vertex-id-ascending order
     // over visited universal vertices, and faces only reference visited
     // ones, so the sorted set of face vertex IDs gives the right ranking.
-    let sorted_pos_ids: Vec<usize> = {
-        let mut all: Vec<usize> = Vec::with_capacity(num_corners);
-        for f in &conn.faces {
-            for v in f {
-                all.push(usize::from(*v));
-            }
+    // Position values are output in ascending universal-vertex-id order over the
+    // visited vertices, so an id's rank is its position among the present ids.
+    // Build it with two linear passes (mark present, assign ranks ascending)
+    // instead of sorting all num_corners ids — O(num_corners + max_id) vs
+    // O(n log n). (The sort+dedup was the hottest loop in the decode profile.)
+    let mut max_universal_id = 0usize;
+    for f in &conn.faces {
+        for v in f {
+            max_universal_id = max_universal_id.max(usize::from(*v));
         }
-        all.sort_unstable();
-        all.dedup();
-        all
-    };
-    let max_universal_id = sorted_pos_ids.last().copied().unwrap_or(0);
+    }
     let mut universal_to_pos_value: Vec<u32> = vec![u32::MAX; max_universal_id + 1];
-    for (rank, &id) in sorted_pos_ids.iter().enumerate() {
-        universal_to_pos_value[id] = rank as u32;
+    for f in &conn.faces {
+        for v in f {
+            universal_to_pos_value[usize::from(*v)] = 0; // mark present
+        }
+    }
+    let mut next_rank = 0u32;
+    for slot in universal_to_pos_value.iter_mut() {
+        if *slot != u32::MAX {
+            *slot = next_rank;
+            next_rank += 1;
+        }
     }
 
     // Per-corner attribute-value-index table, stored flat so each
