@@ -76,11 +76,11 @@ fn encode_output_is_byte_stable() {
 const EXPECT_TETRA_LEN: usize = 191;
 const EXPECT_TETRA_HASH: u64 = 10895554424143992328;
 const EXPECT_SPHERE_LEN: usize = 587;
-const EXPECT_SPHERE_HASH: u64 = 12453140805598858806;
+const EXPECT_SPHERE_HASH: u64 = 271822297800695506;
 // torus and bunny (>= 1000 faces) now use VALENCE Edgebreaker at cl7/speed3,
 // matching Google; their connectivity is byte-identical to Google and the
 // output shrank (torus 3414->2490 == Google, bunny 78507->66567).
 const EXPECT_TORUS_LEN: usize = 2490;
-const EXPECT_TORUS_HASH: u64 = 10564758961332670277;
-const EXPECT_BUNNY_LEN: usize = 66567;
-const EXPECT_BUNNY_HASH: u64 = 1847071283564660561;
+const EXPECT_TORUS_HASH: u64 = 6189417996939192234;
+const EXPECT_BUNNY_LEN: usize = 66557;
+const EXPECT_BUNNY_HASH: u64 = 17323674209165957413;

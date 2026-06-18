@@ -195,19 +195,42 @@ where
                 distribution[*sorted_probabilities.last().unwrap()] +=
                     rans_precision - total_rans_prob;
             } else {
-                // ToDo: Do better descrete normalization.
-                let mut err = total_rans_prob - rans_precision;
-                let mut i = distribution.len() - 1;
-                while err > 0 {
-                    if distribution[sorted_probabilities[i]] > 1 {
-                        distribution[sorted_probabilities[i]] -= 1;
-                        err -= 1;
-                    }
-                    if i == 0 {
-                        // Wrap around if we still have error to distribute
-                        i = distribution.len() - 1;
-                    } else {
-                        i -= 1;
+                // Over-allocated (common). Rescale the probabilities
+                // proportionally, byte-for-byte matching Google's
+                // RAnsSymbolEncoder::Create (rans_symbol_encoder.h:138-171).
+                // (The previous 1-at-a-time subtraction produced a different,
+                // valid-but-non-Google normalized table.)
+                let mut error = total_rans_prob - rans_precision;
+                let rans_precision_d = rans_precision as f64;
+                'outer: while error > 0 {
+                    let act_rel_error_d = rans_precision_d / total_rans_prob as f64;
+                    for j in (1..num_symbols).rev() {
+                        let symbol_id = sorted_probabilities[j];
+                        if distribution[symbol_id] <= 1 {
+                            if j == num_symbols - 1 {
+                                // The most frequent symbol would be emptied.
+                                return Err(Err::TooManyZeroFreqCounts);
+                            }
+                            break;
+                        }
+                        let new_prob =
+                            (act_rel_error_d * distribution[symbol_id] as f64).floor() as usize;
+                        let mut fix = distribution[symbol_id] - new_prob;
+                        if fix == 0 {
+                            fix = 1;
+                        }
+                        if fix >= distribution[symbol_id] {
+                            fix = distribution[symbol_id] - 1;
+                        }
+                        if fix > error {
+                            fix = error;
+                        }
+                        distribution[symbol_id] -= fix;
+                        total_rans_prob -= fix;
+                        error -= fix;
+                        if total_rans_prob == rans_precision {
+                            break 'outer;
+                        }
                     }
                 }
             }
