@@ -37,27 +37,45 @@ smaller)** but balloons to **~2× Google at 14-bit**, spending ~10.5 KB it
 shouldn't. So the base encoder is competitive; only the bit-depth scaling is
 broken. This is **draco-oxide-specific** — not inherent to the Draco format.
 
-### Suspected root cause
+### Root cause (CONFIRMED 2026-06-17 via C++/Rust parity audit)
 
-`src/encode/entropy/symbol_coding.rs`:
-- The `DirectCoded` path (`encode_symbols_direct_coded` →
-  `encode_symbols_direct_coded_precision_unwrapped`) builds `freq_counts` sized by
-  **`max_symbol + 1`** — i.e. by the largest symbol *value*, not the count of
-  distinct symbols. Higher quantization bits ⇒ larger residual values ⇒ a much
-  larger frequency/distribution table, serialized in `RansSymbolEncoder::new`
-  (`src/encode/entropy/rans.rs`, the distribution-encoding loop ~lines 218–254).
-- Google libdraco estimates **both** the tagged (length-coded) and raw (direct)
-  symbol schemes and emits whichever is smaller
-  (`compression/entropy/symbol_encoding.cc`). draco-oxide's
-  `SymbolEncodingMethod` selection (top of `symbol_coding.rs`) likely chooses or
-  implements the wrong scheme as residual ranges grow.
+**The original hypothesis below was WRONG and is corrected here.** The audit
+(`docs/audit/2026-06-17-google-parity/03-entropy-quantization.md`) read both
+codebases side by side and refuted the `max_symbol + 1` theory.
 
-Hypotheses to confirm before fixing (instrument first):
-1. Build the `analyzer` (`cargo build --bin analyzer --features evaluation`) and
-   compare the per-section byte breakdown of one primitive at 11-bit vs 14-bit —
-   confirm the bytes are in the symbol distribution table / chosen scheme.
-2. Log which `SymbolEncodingMethod` is chosen per attribute and compare to what
-   Google picks for the same data.
+- **The `max_symbol + 1` table sizing is correct and identical on both sides.**
+  Google does `frequencies(max_entry_value + 1, 0)`
+  (`compression/entropy/symbol_encoding.cc:250`); draco-oxide does the same
+  (`src/encode/entropy/symbol_coding.rs:149-157`). This is NOT the cause.
+- **The real cause: draco-oxide runs no symbol-scheme selection at all.** It
+  hardcodes the `DirectCoded` (raw) scheme
+  (`src/encode/attribute/attribute_encoder.rs:414`; literal
+  `// ToDo: Add the logic to dynamically determine the config` at
+  `src/encode/entropy/symbol_coding.rs:28`). Google's `EncodeSymbols`
+  (`compression/entropy/symbol_encoding.cc:134-158`) estimates **both** the
+  tagged (length-coded) and raw (direct) schemes and emits the smaller, and
+  **forces tagged when `max_value_bit_length > 18`**. The whole estimator stack
+  (`ApproximateTaggedSchemeBits`, `ApproximateRawSchemeBits`,
+  `ComputeShannonEntropy`, `ApproximateRAnsFrequencyTableBits`) is absent in Rust
+  (`grep shannon` → 0 hits).
+- At 11-bit, residuals are small so Google also picks raw → outputs match. At
+  14-bit, `max_value` grows, the raw scheme's run-length table cost explodes,
+  Google flips to tagged, draco-oxide does not → ~2× blowup.
+
+Two compounding sub-bugs in the same file (also confirmed):
+1. "Unique symbols" is computed as the **non-zero** count
+   (`symbols.iter().filter(|&&x| x > 0).count()`, `symbol_coding.rs:46`), not the
+   **distinct-value** count Google derives — drives wrong rANS precision.
+2. Bit-length is `MSB + 2` (`symbol_coding.rs:113`) vs Google's `MSB + 1`
+   (`symbol_encoding.cc:279-281`); also omits the compression-level adjustment.
+   Picks higher precision than Google → larger tables.
+
+### Fix direction
+
+Implement Google's scheme selection: estimate tagged vs raw bits, emit the
+smaller, force tagged above the 18-bit threshold. Fix the unique-symbol count and
+the `MSB + 1` bit-length. Verify with the `conformance/` size-parity harness
+(re-encode a primitive at 11 vs 14-bit and compare the byte size to Google).
 
 ### Reproduce
 
