@@ -709,8 +709,6 @@ fn decode_normal_attribute<R: ByteReader>(
             None => usize::from(corner_table.vertex_idx(c)),
         }
     };
-    let universal_v_idx = |c: CornerIdx| -> usize { usize::from(corner_table.vertex_idx(c)) };
-
     let seeds = face_seed_corners(corner_table.num_faces());
     let sequence = match attr_table {
         Some(t) => Traverser::new(t, seeds).compute_sequence(),
@@ -723,24 +721,41 @@ fn decode_normal_attribute<R: ByteReader>(
     let mut symbol_idx = 0usize;
     let mut flip_idx = 0usize;
 
+    // Precompute each face's normal once (corner 3*f is face f's first corner;
+    // the cross is identical from any corner). predict_normal reads these instead
+    // of recomputing per ring corner (~3x redundant).
+    let face_normals: Vec<[i64; 3]> = match positions_by_ct_vertex {
+        Some(positions) => (0..corner_table.num_faces())
+            .map(|f| {
+                let fc = CornerIdx::from(f * 3);
+                let pos_c = positions
+                    .get(usize::from(corner_table.vertex_idx(fc)))
+                    .copied()
+                    .unwrap_or([0; 3]);
+                face_normal_i64(corner_table, fc, pos_c, positions)
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+
     for c in &sequence {
         let v_idx = attr_v_idx(*c);
         if visited[v_idx] {
             continue;
         }
 
-        let pred = match positions_by_ct_vertex {
-            Some(positions) => predict_normal(
+        let pred = if positions_by_ct_vertex.is_some() {
+            predict_normal(
                 corner_table,
                 attr_table,
                 *c,
-                positions,
+                &face_normals,
                 inverse_xform.center_value,
                 inverse_xform.max_quantized_value,
                 flips.get(flip_idx).copied().unwrap_or(false),
-                universal_v_idx(*c),
-            ),
-            None => [inverse_xform.center_value, inverse_xform.center_value],
+            )
+        } else {
+            [inverse_xform.center_value, inverse_xform.center_value]
         };
         flip_idx += 1;
 
@@ -802,17 +817,16 @@ fn predict_normal(
     ct: &DecoderCornerTable,
     attr_table: Option<&crate::decode::connectivity::DecoderAttributeCornerTable>,
     c: CornerIdx,
-    positions_by_ct_vertex: &[[i32; 3]],
+    face_normals: &[[i64; 3]],
     center_value: i32,
     max_quantized_value: i32,
     flip: bool,
-    universal_v_idx: usize,
 ) -> [i32; 2] {
     use crate::core::corner_table::GenericCornerTable;
-    let pos_c = positions_by_ct_vertex
-        .get(universal_v_idx)
-        .copied()
-        .unwrap_or([0; 3]);
+    // Each face's normal (raw i64 cross) is precomputed once by the caller;
+    // every face is in 3 vertex rings, so recomputing it per ring corner was
+    // ~3x redundant. The cross is identical from any corner of a face.
+    let face_normal = |cc: CornerIdx| face_normals[usize::from(cc) / 3];
 
     // Walk to leftmost adjacent corner. When attr_table is set, use
     // its swing (which respects seam edges as boundaries) so we sum
@@ -836,7 +850,7 @@ fn predict_normal(
     // until another boundary. Avoids the "swing-left-to-leftmost,
     // then swing-right-from-there" indirection — semantically the
     // same SET of corners but with explicit boundary handling.
-    let mut sum: [i64; 3] = face_normal_i64(ct, c, pos_c, positions_by_ct_vertex);
+    let mut sum: [i64; 3] = face_normal(c);
     {
         let mut curr = c;
         loop {
@@ -844,7 +858,7 @@ fn predict_normal(
                 Some(next) if next == c => break,
                 Some(next) => {
                     curr = next;
-                    let f = face_normal_i64(ct, curr, pos_c, positions_by_ct_vertex);
+                    let f = face_normal(curr);
                     for k in 0..3 {
                         sum[k] += f[k];
                     }
@@ -854,7 +868,7 @@ fn predict_normal(
                     let mut r = c;
                     while let Some(rn) = swing_right(r) {
                         r = rn;
-                        let f = face_normal_i64(ct, r, pos_c, positions_by_ct_vertex);
+                        let f = face_normal(r);
                         for k in 0..3 {
                             sum[k] += f[k];
                         }
