@@ -1,5 +1,37 @@
 # Normal attribute byte-identity — status + plan
 
+## UPDATE 2026-06-18 — normal octahedral math is now BYTE-EXACT
+
+The integer normal encode+decode is implemented (predict → CanonicalizeIntegerVector
+→ ±IntegerVectorToQuantizedOctahedralCoords → compute_correction → ModMax →
+min-abs-sum flip → MakePositive; decoder mirrors it with `compute_original_value`).
+Verified against Google: decoding Google's own `bunny.drc` and diffing the normal
+symbol arrays gives **0 differences**, and the encoder's flip-bit vector matches
+Google's exactly. **bunny's encoded size now equals Google's exactly (69169 B)**;
+tetra too (188 B). torus stays byte-identical; interop + round-trip + full suite green.
+
+Two extra fixes were needed (both measured, not assumed):
+- **Position quantization rounding** (`quantization_coordinate_wise.rs`): match
+  Google's `Quantizer` — one f32 reciprocal `inverse_delta = max_q/range` then
+  `floor(diff*inverse_delta + 0.5)`. The old `(diff/range)*max_q` rounded
+  differently in f32, giving 5 off-by-one bunny vertices that cascaded into 29
+  wrong normal symbols.
+- i64 cross product in the area predictor (was i32, overflow risk).
+
+**Remaining for full bunny byte-identity = the entropy layer, NOT octahedral math.**
+bunny still differs in ~28 bytes: 1 byte in the position rANS stream (byte 5587)
+and ~27 bytes in the flip-bit RABS buffer at the tail. The underlying values are
+identical to Google (proven above); the rANS/RABS coders just choose a different
+valid byte encoding. There is also a suspected oxide-internal RABS round-trip bug
+on sparse bit patterns (encodes flip `[1@691]`, decodes `[1@34142]`). Next pass:
+align the RABS/rANS coders to Google's exact renormalization (same class as the
+rANS table-normalization fix that made torus byte-identical).
+
+---
+(original plan below)
+
+# Normal attribute byte-identity — status + plan (original)
+
 **Date:** 2026-06-18. Gap D, bunny's normal attribute (first divergence at byte
 5587, in the NORMAL symbol stream).
 

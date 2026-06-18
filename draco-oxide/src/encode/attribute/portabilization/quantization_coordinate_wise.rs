@@ -115,16 +115,28 @@ where
             }
             out
         };
-        let diff = val - self.min_values;
-        let normalized = if self.range_size == 0.0 {
-            diff
+        // Match Google's `Quantizer` byte-for-byte
+        // (core/quantization_utils.{h,cc} + attribute_quantization_transform.cc
+        // GeneratePortableAttribute): precompute a single f32 reciprocal
+        //   inverse_delta = max_quantized_value / range
+        // then quantize each component as
+        //   q = floor((value - min) * inverse_delta + 0.5)
+        // Doing the divide per-value and multiplying afterwards (the previous
+        // `(diff / range) * max_q`) rounds differently in f32 and produced
+        // off-by-one quantized positions at a handful of vertices, which then
+        // cascaded into wrong predicted normals. A zero range maps everything
+        // to 0 (Google bumps range to 1.0; both yield q=0 since diff=0).
+        let max_quantized_value = f32::from_u64((1 << self.quantization_bits) - 1);
+        let inverse_delta = if self.range_size == 0.0 {
+            0.0
         } else {
-            diff / self.range_size
+            max_quantized_value / self.range_size
         };
-        let quantized = normalized * f32::from_u64((1 << self.quantization_bits) - 1);
+        let diff = val - self.min_values;
         let mut out = NdVector::<N, i32>::zero();
         for i in 0..N {
-            *out.get_mut(i) = (*quantized.get(i) + 0.5).to_i64() as i32;
+            let v = *diff.get(i) * inverse_delta;
+            *out.get_mut(i) = (v + 0.5).floor() as i32;
         }
         out
     }

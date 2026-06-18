@@ -1,8 +1,6 @@
-use crate::core::shared::{CornerIdx, Cross, Dot, VertexIdx};
-use crate::encode::attribute::prediction_transform::geom::{
-    into_faithful_oct_quantization, octahedral_transform,
-};
+use crate::core::shared::{CornerIdx, Cross, VertexIdx};
 use crate::encode::entropy::rans::RabsCoder;
+use crate::shared::attribute::octahedron_toolbox::OctahedronToolBox;
 use crate::utils::bit_coder::leb128_write;
 
 use super::PredictionSchemeImpl;
@@ -33,20 +31,28 @@ where
             .pos
             .get::<NdVector<3, i32>, 3>(self.corner_table.point_idx(c_prev));
 
-        // Compute the difference to next and prev.
+        // Widen positions to i64 BEFORE differencing/crossing. Google's
+        // `MeshPredictionSchemeGeometricNormalPredictorArea::ComputePredictedValue`
+        // (predictor_area.h:49-71) does all of delta/cross math on
+        // `VectorD<int64_t, 3>` — computing the cross in i32 first overflows
+        // for large quantized position deltas.
+        let to_i64 = |v: NdVector<3, i32>| -> NdVector<3, i64> {
+            let mut out = NdVector::<3, i64>::zero();
+            *out.get_mut(0) = *v.get(0) as i64;
+            *out.get_mut(1) = *v.get(1) as i64;
+            *out.get_mut(2) = *v.get(2) as i64;
+            out
+        };
+        let pos_c = to_i64(pos_c);
+        let pos_next = to_i64(pos_next);
+        let pos_prev = to_i64(pos_prev);
+
+        // Compute the difference to next and prev (in i64).
         let delta_next = pos_next - pos_c;
         let delta_prev = pos_prev - pos_c;
 
-        // Take the cross product
-        let cross = {
-            let cross_i32 = delta_next.cross(delta_prev);
-            let mut cross = NdVector::<3, i64>::zero();
-            *cross.get_mut(0) = *cross_i32.get(0) as i64;
-            *cross.get_mut(1) = *cross_i32.get(1) as i64;
-            *cross.get_mut(2) = *cross_i32.get(2) as i64;
-            cross
-        };
-        cross
+        // Take the cross product (in i64).
+        delta_next.cross(delta_prev)
     }
 }
 
@@ -87,67 +93,101 @@ where
         attribute: &Attribute,
     ) -> NdVector<N, i32> {
         let pos_c = self.pos.get(self.corner_table.point_idx(c));
+
+        // Iterate the corners around the vertex in EXACTLY Google's
+        // `VertexCornersIterator` order (corner_table_iterators.h:210-262):
+        // start at `c`, swing-LEFT accumulating until a boundary (then switch
+        // to swing-RIGHT from `c`) or until we loop back to `c`. Google's
+        // GeometricNormalPredictorArea constructs the iterator from the corner
+        // directly (`VertexCornersIterator cit(corner_table, corner_id)`), NOT
+        // from the leftmost corner — and the boundary handling differs from a
+        // "walk to leftmost, then swing right" approach for open vertices, so
+        // we mirror the iterator verbatim. The decoder's `predict_normal` uses
+        // the same order; the two MUST agree for byte-identical output.
+        let mut sum = self.compute_normal_of_face(c, pos_c);
         let mut curr_c = c;
-        while let Some(left_c) = self.corner_table.swing_left(curr_c) {
-            curr_c = left_c;
-            if curr_c == c {
-                break;
+        loop {
+            match self.corner_table.swing_left(curr_c) {
+                Some(next) if next == c => break, // looped back: closed ring done.
+                Some(next) => {
+                    curr_c = next;
+                    sum += self.compute_normal_of_face(curr_c, pos_c);
+                }
+                None => {
+                    // Open boundary reached on the left — switch to swinging
+                    // RIGHT from the start corner `c` until the other boundary.
+                    let mut r = c;
+                    while let Some(rn) = self.corner_table.swing_right(r) {
+                        r = rn;
+                        sum += self.compute_normal_of_face(r, pos_c);
+                    }
+                    break;
+                }
             }
-        }
-        let start_c = curr_c;
-        let mut sum = self.compute_normal_of_face(curr_c, pos_c);
-        while let Some(next_c) = self.corner_table.swing_right(curr_c) {
-            curr_c = next_c;
-            if curr_c == start_c {
-                break;
-            }
-            sum += self.compute_normal_of_face(curr_c, pos_c);
         }
 
-        // Cast down to i32. The following upper bound is from the draco library.
-        let upper_bound = 1 << 29;
+        // Cap |sum| ≤ 2^29 so the i64→i32 cast is safe, exactly mirroring
+        // Google's GeometricNormalPredictorArea::ComputePredictedValue
+        // (predictor_area.h:83-101): in TRIANGLE_AREA mode `abs_sum`,
+        // `quotient` and the division are all int64.
+        let upper_bound: i64 = 1 << 29;
         let abs_sum = sum.get(0).abs() + sum.get(1).abs() + sum.get(2).abs();
         if abs_sum > upper_bound {
             let quotient = abs_sum / upper_bound;
             sum /= quotient;
         }
-        let mut out = {
-            let mut out = NdVector::<3, i32>::zero();
-            *out.get_mut(0) = *sum.get(0) as i32;
-            *out.get_mut(1) = *sum.get(1) as i32;
-            *out.get_mut(2) = *sum.get(2) as i32;
+        let pred_normal_3d: [i32; 3] = [
+            *sum.get(0) as i32,
+            *sum.get(1) as i32,
+            *sum.get(2) as i32,
+        ];
 
-            // Check if the normal is zero and handle gracefully
-            if out == NdVector::<3, i32>::zero() {
-                // Return a default normal pointing up (0, 0, 1) in octahedral space
-                let mut default_out = NdVector::<N, i32>::zero();
-                *default_out.get_mut(0) = 0;
-                *default_out.get_mut(1) = 0;
-                default_out
-            } else {
-                let val_oct = octahedral_transform(out) + NdVector::<2, f32>::from([1.0, 1.0]);
-                let quantized = val_oct * ((1 << (8 - 1)) - 1) as f32; // TODO: Stop hardcoding the quantization bits.
-                let mut out = NdVector::<2, i32>::zero();
-                for i in 0..2 {
-                    *out.get_mut(i) = (*quantized.get(i)) as i32;
-                }
-                let quant_out = into_faithful_oct_quantization(out);
-                let mut out = NdVector::<N, i32>::zero();
-                *out.get_mut(0) = *quant_out.get(0);
-                *out.get_mut(1) = *quant_out.get(1);
-                out
-            }
-        };
-        let actual_val = attribute.get::<NdVector<N, i32>, N>(self.corner_table.point_idx(c));
-        let diff1 = out - actual_val;
-        let diff2 = out * -1 - actual_val;
-        if diff1.dot(diff1) > diff2.dot(diff2) {
-            // if -out is closer to the actual value, we flip the sign.
-            self.flips.push(true);
-            out = out * -1;
-        } else {
+        // The remainder mirrors Google's
+        // `MeshPredictionSchemeGeometricNormalEncoder::ComputeCorrectionValues`
+        // (mesh_prediction_scheme_geometric_normal_encoder.h:117-160). Normals
+        // use an 8-bit octahedral grid (max_quantized_value = 255,
+        // center_value = 127); the transform writes those two values.
+        let tool = OctahedronToolBox::new(8);
+
+        // Canonicalize the integer 3D normal so |x|+|y|+|z| == center_value.
+        let mut p: [i64; 3] = [
+            pred_normal_3d[0] as i64,
+            pred_normal_3d[1] as i64,
+            pred_normal_3d[2] as i64,
+        ];
+        tool.canonicalize_integer_vector(&mut p);
+
+        // Octahedral coords for both possible directions (pos / neg).
+        let pos = [p[0] as i32, p[1] as i32, p[2] as i32];
+        let neg = [-pos[0], -pos[1], -pos[2]];
+        let (pos_s, pos_t) = tool.integer_vector_to_quantized_octahedral_coords(pos);
+        let (neg_s, neg_t) = tool.integer_vector_to_quantized_octahedral_coords(neg);
+
+        // Original (actual) octahedral value of this corner's normal.
+        let orig_v = attribute.get::<NdVector<2, i32>, 2>(self.corner_table.point_idx(c));
+        let orig = [*orig_v.get(0), *orig_v.get(1)];
+
+        // Correction for each candidate, then ModMax to bring into [-c, c].
+        let pc_raw = tool.compute_correction(orig, [pos_s, pos_t]);
+        let pc = [tool.mod_max(pc_raw[0]), tool.mod_max(pc_raw[1])];
+        let nc_raw = tool.compute_correction(orig, [neg_s, neg_t]);
+        let nc = [tool.mod_max(nc_raw[0]), tool.mod_max(nc_raw[1])];
+
+        // Choose the direction with the smaller absolute-sum correction.
+        // Ties go to the negative direction (matches Google's `<`).
+        let pc_abs = pc[0].abs() + pc[1].abs();
+        let nc_abs = nc[0].abs() + nc[1].abs();
+        let chosen = if pc_abs < nc_abs {
             self.flips.push(false);
-        }
+            pc
+        } else {
+            self.flips.push(true);
+            nc
+        };
+
+        let mut out = NdVector::<N, i32>::zero();
+        *out.get_mut(0) = tool.make_positive(chosen[0]);
+        *out.get_mut(1) = tool.make_positive(chosen[1]);
         out
     }
 

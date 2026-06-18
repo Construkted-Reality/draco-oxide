@@ -232,6 +232,37 @@ impl OctahedronToolBox {
         ]
     }
 
+    /// Inverse of [`compute_correction`](Self::compute_correction). Mirror of
+    /// the canonicalized decoding transform's `ComputeOriginalValue`
+    /// (`prediction_scheme_normal_octahedron_canonicalized_decoding_transform.h`
+    /// :90-113). `pred` is the predicted octahedral (s,t) in `[0, 2*center]`;
+    /// `corr` is the RAW decoded correction symbol (no zigzag) in `[0, 2*center]`.
+    pub(crate) fn compute_original_value(&self, pred: [i32; 2], corr: [i32; 2]) -> [i32; 2] {
+        let c = self.center_value;
+        let mut pred = [pred[0] - c, pred[1] - c];
+        let in_diamond = self.is_in_diamond(pred[0], pred[1]);
+        if !in_diamond {
+            self.invert_diamond(&mut pred);
+        }
+        let in_bl = self.is_in_bottom_left(pred);
+        let rc = self.get_rotation_count(pred);
+        if !in_bl {
+            pred = self.rotate_point(pred, rc);
+        }
+        // AddAsUnsigned + ModMax.
+        let mut orig = [
+            self.mod_max((pred[0] as u32).wrapping_add(corr[0] as u32) as i32),
+            self.mod_max((pred[1] as u32).wrapping_add(corr[1] as u32) as i32),
+        ];
+        if !in_bl {
+            orig = self.rotate_point(orig, (4 - rc) % 4);
+        }
+        if !in_diamond {
+            self.invert_diamond(&mut orig);
+        }
+        [orig[0] + c, orig[1] + c]
+    }
+
     /// Mirror of `CanonicalizeIntegerVector` — scale a signed integer vector so
     /// its abs sum equals `center_value`.
     pub(crate) fn canonicalize_integer_vector(&self, vec: &mut [i64; 3]) {

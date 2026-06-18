@@ -9,6 +9,7 @@
 //!                                                       deportabilize
 
 use crate::core::bit_coder::ReaderErr;
+use crate::shared::attribute::octahedron_toolbox::OctahedronToolBox;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Err {
@@ -137,77 +138,20 @@ impl OctahedralOrthogonalInverseTransform {
         })
     }
 
-    /// Inverse of the encoder's transform (see
-    /// `encode/attribute/prediction_transform/oct_orthogonal.rs::map_with_tentative_metadata`).
-    /// Both `pred` and `corr_positive` are 2-component i32 arrays in the
-    /// `[0, max_quantized_value]` range.
+    /// Inverse of the canonicalized octahedral encoding transform. The encoder
+    /// (`MeshNormalPrediction::predict` + `OctahedronOrthogonalTransform`) now
+    /// emits Google's canonicalized `ComputeCorrection`, so the decoder is its
+    /// exact inverse: Google's `ComputeOriginalValue`
+    /// (`prediction_scheme_normal_octahedron_canonicalized_decoding_transform.h`).
+    /// Both `pred` and `corr_positive` are 2-component i32 arrays in
+    /// `[0, max_quantized_value]`; `corr_positive` is the RAW decoded symbol
+    /// (no zigzag).
     pub(crate) fn inverse(&self, corr_positive: &[i32; 2], pred: &[i32; 2]) -> [i32; 2] {
-        let center = self.center_value;
-        let max = self.max_quantized_value;
-
-        // Shift pred to centered coordinates [-center, center].
-        let mut p0 = pred[0] - center;
-        let mut p1 = pred[1] - center;
-
-        // Encoder's "flip inside-out" transform on pred.
-        let mut flipped = false;
-        if p0.abs() + p1.abs() > center {
-            flipped = true;
-            let p0_old = p0;
-            let quadrant_sign = -(p0 * p1).signum();
-            p0 = quadrant_sign * p1 + p0.signum() * center;
-            p1 = quadrant_sign * p0_old + p1.signum() * center;
-        }
-
-        // Rotate pred to lower-left quadrant; remember rotation count.
-        let mut rotation_count = 0i32;
-        if !(p0 == 0 && p1 == 0) {
-            while p0 >= 0 || p1 > 0 {
-                let tmp = p0;
-                p0 = -p1;
-                p1 = tmp;
-                rotation_count += 1;
-            }
-        }
-
-        // OctahedralOrthogonal encoder writes `corr = (orig - pred) mod max`
-        // directly (negatives become `+ max`), NOT via zigzag/`to_positive_i32`.
-        // So pass raw symbol values; `mod_max` wraps the sum back into
-        // [-center, center]. Mirrors Google's `OctahedronToolBox::ModMax`.
-        let mut o0 = mod_max(p0 + corr_positive[0], center, max);
-        let mut o1 = mod_max(p1 + corr_positive[1], center, max);
-
-        // Reverse rotation: rotate counter-clockwise rotation_count times.
-        for _ in 0..rotation_count {
-            let tmp = o0;
-            o0 = o1;
-            o1 = -tmp;
-        }
-
-        if flipped {
-            // Reverse the flip-inside-out.
-            let o0_old = o0;
-            let quadrant_sign = -(o0 * o1).signum();
-            o0 = quadrant_sign * o1 + o0.signum() * center;
-            o1 = quadrant_sign * o0_old + o1.signum() * center;
-        }
-
-        [o0 + center, o1 + center]
-    }
-}
-
-/// Mirrors Google's `OctahedronToolBox::ModMax`:
-///   if x > center: return x - max
-///   if x < -center: return x + max
-///   else: return x
-#[inline]
-fn mod_max(x: i32, center: i32, max: i32) -> i32 {
-    if x > center {
-        x - max
-    } else if x < -center {
-        x + max
-    } else {
-        x
+        // Reconstruct the quantization bit-depth from the on-wire
+        // max_quantized_value (= 2^q - 1), e.g. 255 -> 8.
+        let q = (32 - (self.max_quantized_value as u32).leading_zeros()) as u8;
+        let tool = OctahedronToolBox::new(q);
+        tool.compute_original_value(*pred, *corr_positive)
     }
 }
 

@@ -40,6 +40,9 @@ where
 use crate::core::shared::Abs;
 /// Transforms the data to the octahedron space.
 /// Make sure that the data is three dimensional.
+// Superseded by the integer `OctahedronToolBox` for the normal encode path; kept
+// for the float oct helpers still used by other prediction transforms.
+#[allow(dead_code)]
 pub(crate) fn octahedral_transform<const N: usize, Data>(v: Data) -> NdVector<2, f32>
 where
     Data: Vector<N>,
@@ -129,6 +132,8 @@ where
     out
 }
 
+// Superseded by `OctahedronToolBox::canonicalize_octahedral_coords`.
+#[allow(dead_code)]
 pub(crate) fn into_faithful_oct_quantization(vec: NdVector<2, i32>) -> NdVector<2, i32> {
     let max = 255;
     let half = max / 2;
