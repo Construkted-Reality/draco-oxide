@@ -14,7 +14,7 @@ const CL: u32 = 7;
 /// Hard gate: these meshes must stay byte-identical to Google's encoder.
 #[test]
 fn meshes_byte_identical_to_google() {
-    for mesh in ["torus.obj", "bunny.obj"] {
+    for mesh in ["torus.obj", "bunny.obj", "nonmanifold_edge.obj"] {
         let obj = mesh_dir().join(mesh);
         let google = google_encode(&obj, QP, CL, false);
         let oxide = oxide_encode(&obj, QP as u8).expect("oxide encode");

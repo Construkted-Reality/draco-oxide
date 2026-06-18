@@ -52,6 +52,13 @@ fn encode_output_is_byte_stable() {
         ),
         ("tests/data/torus.obj", EXPECT_TORUS_LEN, EXPECT_TORUS_HASH),
         ("tests/data/bunny.obj", EXPECT_BUNNY_LEN, EXPECT_BUNNY_HASH),
+        // Exercises the non-manifold path (edge shared by 3 faces ->
+        // handle_no_manifold_edges), which the other fixtures never trigger.
+        (
+            "tests/data/nonmanifold_edge.obj",
+            EXPECT_NM_LEN,
+            EXPECT_NM_HASH,
+        ),
     ];
     let dump = std::env::var("DUMP_ENCODE_FINGERPRINTS").is_ok();
     for (obj, exp_len, exp_hash) in cases {
@@ -98,3 +105,6 @@ const EXPECT_TORUS_LEN: usize = 2490;
 const EXPECT_TORUS_HASH: u64 = 6189417996939192234;
 const EXPECT_BUNNY_LEN: usize = 69169;
 const EXPECT_BUNNY_HASH: u64 = 2710872942979440892;
+// Tiny non-manifold fixture (edge shared by 3 faces). Byte-identical to Google.
+const EXPECT_NM_LEN: usize = 89;
+const EXPECT_NM_HASH: u64 = 4728961036571408597;

@@ -1,0 +1,11 @@
+# Minimal non-manifold mesh: edge (v2,v3) is shared by THREE faces, which
+# triggers the corner-table non-manifold path (handle_no_manifold_edges).
+# A planar quad (faces 1,2) plus a fin (face 3) hinged on the shared edge.
+v 0.0 0.0 0.0
+v 1.0 0.0 0.0
+v 0.0 1.0 0.0
+v 1.0 1.0 0.0
+v 0.5 0.5 1.0
+f 1 2 3
+f 2 4 3
+f 2 3 5

@@ -18,3 +18,4 @@ draco-oxide/tests/outputs
 # private test data
 private_tests.claude/
 .claude/
+draco-oxide/tests/data/bunny_nonmanifold.obj
