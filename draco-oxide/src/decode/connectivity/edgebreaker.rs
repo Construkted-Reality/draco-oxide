@@ -61,6 +61,11 @@ pub enum Err {
         remaining: usize,
         max: usize,
     },
+    #[error(
+        "Declared num_faces {declared} would overflow computing the corner-table size \
+         (num_faces * 3); refusing count-derived allocation (decompression bomb)"
+    )]
+    CornerCountOverflow { declared: usize },
 }
 
 /// Rejects a bitstream-declared element `count` that could not plausibly be
@@ -75,15 +80,22 @@ fn guard_declared_count(
     remaining: Option<usize>,
     what: &'static str,
 ) -> Result<(), Err> {
-    if count_exceeds_remaining_input(declared, remaining) {
-        return Err(Err::DeclaredCountTooLarge {
-            what,
-            declared,
-            remaining: remaining.unwrap_or(usize::MAX),
-            max: max_admissible_count(remaining).unwrap_or(usize::MAX),
-        });
+    if !count_exceeds_remaining_input(declared, remaining) {
+        return Ok(());
     }
-    Ok(())
+    // `count_exceeds_remaining_input` only returns `true` when `remaining`
+    // is `Some(_)` (a `None` remaining always yields `false`, see its
+    // implementation) — so `DeclaredCountTooLarge` is only ever
+    // constructed with real `remaining`/`max` values, never a `usize::MAX`
+    // placeholder. Both unwraps below are therefore infallible.
+    let remaining = remaining.expect("count_exceeds_remaining_input(_, None) is always false");
+    let max = max_admissible_count(Some(remaining)).expect("Some(_) in, Some(_) out");
+    Err(Err::DeclaredCountTooLarge {
+        what,
+        declared,
+        remaining,
+        max,
+    })
 }
 
 /// Topology split events read from the bitstream.
@@ -466,7 +478,11 @@ fn replay_symbols(
     ),
     Err,
 > {
-    let mut ct = DecoderCornerTable::with_capacity(expected_faces, expected_faces);
+    let mut ct = DecoderCornerTable::with_capacity(expected_faces, expected_faces).ok_or(
+        Err::CornerCountOverflow {
+            declared: expected_faces,
+        },
+    )?;
     let mut active_stack: Vec<CornerIdx> = Vec::new();
     let mut start_corners: Vec<CornerIdx> = Vec::new();
     let mut face_id = 0usize;
@@ -865,10 +881,14 @@ mod tests {
     }
 
     /// A header whose `num_faces` is proportionate to the (small) remaining
-    /// input must pass the bomb guard and fail later for an ordinary reason
-    /// (truncated stream), proving the guard doesn't reject legitimate ratios.
+    /// input must not be rejected by the bomb guard — it may still fail
+    /// later for an ordinary reason (e.g. the stream being truncated), but
+    /// specifically NOT with `DeclaredCountTooLarge`. Renamed from
+    /// `decode_admits_proportionate_num_faces` (which read as if it
+    /// asserted successful decode) to make clear this is a targeted
+    /// "guard didn't false-positive" check, not an admission/success check.
     #[test]
-    fn decode_admits_proportionate_num_faces() {
+    fn decode_does_not_flag_proportionate_num_faces_as_bomb() {
         let mut bytes = vec![0u8]; // Standard
         bytes.extend(leb128(4)); // num_vertices
         bytes.extend(leb128(2)); // num_faces — well within (remaining+1)*1024

@@ -732,4 +732,34 @@ mod tests {
         assert_eq!(reverse_reader.read_u8_back(), Err(NotEnoughData));
         assert!(reader.next().is_none());
     }
+
+    /// Fail-open regression guard: the decompression-bomb check in
+    /// `decode/connectivity/edgebreaker.rs::guard_declared_count` is only
+    /// as strong as `remaining_bytes()` actually reporting a real count.
+    /// Both real decode-path readers (`vec::IntoIter<u8>` — used by
+    /// `into_iter()` GLB decode, and `&[u8]` — used by the zero-copy GLB
+    /// splice path) MUST return `Some(..)`, not the trait's default
+    /// `None`, or the bomb guard silently no-ops for real input. This
+    /// doesn't apply to `FunctionalByteReader`: it's a user-supplied
+    /// streaming reader with no cheap way to know how much is left, so
+    /// `None` there is deliberate (per-byte reads still fail-fast on
+    /// exhaustion) — don't "fix" it to return `Some`.
+    #[test]
+    fn decode_path_readers_report_remaining_bytes() {
+        let bytes: Vec<u8> = vec![1, 2, 3, 4, 5];
+
+        let iter_reader = bytes.clone().into_iter();
+        assert_eq!(
+            iter_reader.remaining_bytes(),
+            Some(5),
+            "vec::IntoIter<u8> must report remaining_bytes() so the bomb guard applies"
+        );
+
+        let slice_reader: &[u8] = &bytes;
+        assert_eq!(
+            slice_reader.remaining_bytes(),
+            Some(5),
+            "&[u8] must report remaining_bytes() so the bomb guard applies"
+        );
+    }
 }
