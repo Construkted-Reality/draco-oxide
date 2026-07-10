@@ -5,9 +5,9 @@ pub(crate) mod prediction_transform;
 use crate::core::shared::CornerIdx;
 use crate::encode::attribute::portabilization::PortabilizationType;
 use crate::encode::connectivity::ConnectivityEncoderOutput;
-use crate::shared::attribute::sequence::Traverser;
 #[cfg(feature = "evaluation")]
 use crate::eval;
+use crate::shared::attribute::sequence::Traverser;
 
 use crate::prelude::{Attribute, ByteWriter, ConfigType};
 use crate::shared::connectivity::edgebreaker::TraversalType;

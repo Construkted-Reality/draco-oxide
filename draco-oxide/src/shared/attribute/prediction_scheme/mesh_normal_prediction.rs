@@ -79,8 +79,8 @@ where
             "MeshNormalPrediction requires the first parent attribute to be of type Position."
         );
         let pos = parents[0]; // we made sure that the first parent is the position attribute
-        // Precompute each face's normal once (corner 3*f is face f's first
-        // corner; the cross product is the same from any corner of the face).
+                              // Precompute each face's normal once (corner 3*f is face f's first
+                              // corner; the cross product is the same from any corner of the face).
         let num_faces = corner_table.num_faces();
         let mut face_normals = Vec::with_capacity(num_faces);
         for f in 0..num_faces {
@@ -153,11 +153,7 @@ where
             let quotient = abs_sum / upper_bound;
             sum /= quotient;
         }
-        let pred_normal_3d: [i32; 3] = [
-            *sum.get(0) as i32,
-            *sum.get(1) as i32,
-            *sum.get(2) as i32,
-        ];
+        let pred_normal_3d: [i32; 3] = [*sum.get(0) as i32, *sum.get(1) as i32, *sum.get(2) as i32];
 
         // The remainder mirrors Google's
         // `MeshPredictionSchemeGeometricNormalEncoder::ComputeCorrectionValues`

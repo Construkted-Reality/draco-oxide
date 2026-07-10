@@ -258,8 +258,9 @@ where
                 ConnectivityEncoderOutput::Edgebreaker(edgebreaker_out) => {
                     let universal_sequence = self.universal_sequence;
                     let att_data_id = self.att_data_id;
-                    if let Some(corner_table) =
-                        edgebreaker_out.corner_table.attribute_corner_table(att_data_id)
+                    if let Some(corner_table) = edgebreaker_out
+                        .corner_table
+                        .attribute_corner_table(att_data_id)
                     {
                         // No interior seams => this attribute's traversal order is
                         // identical to the universal one; reuse the shared sequence
