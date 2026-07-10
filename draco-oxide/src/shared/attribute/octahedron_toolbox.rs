@@ -77,14 +77,25 @@ impl OctahedronToolBox {
             t = v[2] + center;
         } else {
             // Left hemisphere.
-            s = if v[1] < 0 { v[2].abs() } else { max - v[2].abs() };
-            t = if v[2] < 0 { v[1].abs() } else { max - v[1].abs() };
+            s = if v[1] < 0 {
+                v[2].abs()
+            } else {
+                max - v[2].abs()
+            };
+            t = if v[2] < 0 {
+                v[1].abs()
+            } else {
+                max - v[1].abs()
+            };
         }
         self.canonicalize_octahedral_coords(s, t)
     }
 
     /// Mirror of `FloatVectorToQuantizedOctahedralCoords` — round-half-up.
-    pub(crate) fn float_vector_to_quantized_octahedral_coords(&self, vector: [f64; 3]) -> (i32, i32) {
+    pub(crate) fn float_vector_to_quantized_octahedral_coords(
+        &self,
+        vector: [f64; 3],
+    ) -> (i32, i32) {
         let abs_sum = vector[0].abs() + vector[1].abs() + vector[2].abs();
         let scaled = if abs_sum > 1e-6 {
             let scale = 1.0 / abs_sum;

@@ -1,11 +1,11 @@
 use crate::core::shared::AttributeValueIdx;
 use crate::core::shared::DataValue;
 use crate::core::shared::Vector;
-use crate::shared::attribute::octahedron_toolbox::OctahedronToolBox;
 use crate::prelude::Attribute;
 use crate::prelude::AttributeType;
 use crate::prelude::ByteWriter;
 use crate::prelude::NdVector;
+use crate::shared::attribute::octahedron_toolbox::OctahedronToolBox;
 use crate::shared::attribute::Portable;
 
 use super::Config;

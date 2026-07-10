@@ -415,7 +415,6 @@ impl<'mesh> CornerTable<'mesh> {
         }
     }
 
-
     #[inline]
     pub(crate) fn first_corner(face_idx: FaceIdx) -> CornerIdx {
         CornerIdx::from(usize::from(face_idx) * 3)

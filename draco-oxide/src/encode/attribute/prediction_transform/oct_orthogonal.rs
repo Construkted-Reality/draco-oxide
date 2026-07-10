@@ -13,11 +13,8 @@ impl<const N: usize> OctahedronOrthogonalTransform<N> {
 }
 
 impl<const N: usize> PredictionTransformImpl<N> for OctahedronOrthogonalTransform<N> {
-    fn map_with_tentative_metadata(
-        &mut self,
-        _orig: NdVector<N, i32>,
-        pred: NdVector<N, i32>,
-    ) where
+    fn map_with_tentative_metadata(&mut self, _orig: NdVector<N, i32>, pred: NdVector<N, i32>)
+    where
         NdVector<N, i32>: Vector<N, Component = i32>,
     {
         // Safety:
