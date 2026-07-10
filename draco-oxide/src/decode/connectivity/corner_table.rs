@@ -41,15 +41,26 @@ pub(crate) struct DecoderCornerTable {
 }
 
 impl DecoderCornerTable {
-    pub(crate) fn with_capacity(num_faces: usize, num_vertices_hint: usize) -> Self {
-        let num_corners = num_faces * 3;
-        Self {
+    /// `None` if `num_faces * 3` (the corner count) would overflow `usize`.
+    ///
+    /// `num_faces` is a bitstream-declared count already bounded by
+    /// `guard_declared_count` against the reader's remaining bytes — but
+    /// that bound is relative (`(remaining + 1) * 1024`), so on a 32-bit
+    /// target (wasm32) a ~1.4 MB padded input can still admit a
+    /// `num_faces` whose `* 3` wraps `usize` in release builds, which
+    /// would otherwise silently produce a tiny allocation and downstream
+    /// out-of-bounds access. `checked_mul` makes that impossible: the
+    /// caller gets `None` and turns it into a decode error instead of a
+    /// wrapped, undersized `Vec`.
+    pub(crate) fn with_capacity(num_faces: usize, num_vertices_hint: usize) -> Option<Self> {
+        let num_corners = num_faces.checked_mul(3)?;
+        Some(Self {
             opposite: vec![NO_CORNER; num_corners],
             corner_to_vertex: vec![NO_CORNER; num_corners],
             left_most_corner: Vec::with_capacity(num_vertices_hint),
             num_vertices: 0,
             vertex_alias: Vec::new(),
-        }
+        })
     }
 
     /// Resolve a vertex ID through the S-merge alias chain to its
@@ -285,5 +296,40 @@ impl GenericCornerTable for DecoderCornerTable {
 
     fn left_most_corner(&self, vertex: VertexIdx) -> CornerIdx {
         CornerIdx::from(self.left_most_corner[usize::from(vertex)])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Overflow boundary: `num_faces * 3` must not silently wrap. This is
+    /// exploitable on a 32-bit target (wasm32) where a bitstream-declared
+    /// `num_faces` that clears the (relative) `guard_declared_count` bound
+    /// can still be large enough that `* 3` overflows `usize`. We can
+    /// reproduce the same overflow condition on a 64-bit host by picking
+    /// `num_faces` just above `usize::MAX / 3` — no multi-GB allocation is
+    /// attempted either way, since `checked_mul` returns `None` before any
+    /// `Vec` is sized.
+    #[test]
+    fn with_capacity_rejects_corner_count_overflow() {
+        let num_faces = usize::MAX / 3 + 1;
+        assert!(
+            DecoderCornerTable::with_capacity(num_faces, 1).is_none(),
+            "num_faces * 3 overflow must be rejected, not silently wrapped"
+        );
+
+        // usize::MAX itself is the most extreme case and must also reject.
+        assert!(DecoderCornerTable::with_capacity(usize::MAX, 1).is_none());
+    }
+
+    /// Non-overflowing counts still build a correctly-sized table (no
+    /// regression from the `Option`-returning signature).
+    #[test]
+    fn with_capacity_succeeds_for_ordinary_counts() {
+        let ct = DecoderCornerTable::with_capacity(4, 4).expect("4 faces must not overflow");
+        assert_eq!(ct.opposite.len(), 12);
+        assert_eq!(ct.corner_to_vertex.len(), 12);
+        assert_eq!(ct.left_most_corner.capacity(), 4);
     }
 }
