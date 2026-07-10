@@ -234,6 +234,17 @@ pub trait ByteReader {
         Ok(u64::from_le_bytes(out))
     }
 
+    /// Number of input bytes still available to read, or `None` when the
+    /// reader can't cheaply report it (e.g. a user-supplied streaming
+    /// [`FunctionalByteReader`]). Used to reject bitstream-declared element
+    /// counts that are disproportionate to the remaining compressed input —
+    /// a decompression-bomb guard mirroring `PREALLOC_CAP` for
+    /// count-derived allocations. Returning `None` disables that guard for
+    /// the reader (the per-byte reads still fail-fast on exhaustion).
+    fn remaining_bytes(&self) -> Option<usize> {
+        None
+    }
+
     fn spown_reverse_reader_at(&mut self, offset: usize) -> Result<Self::Rev, ReaderErr>;
 }
 
@@ -272,6 +283,10 @@ impl ByteReader for vec::IntoIter<u8> {
             self.next().ok_or(ReaderErr::NotEnoughData)?,
         ];
         Ok(u64::from_le_bytes(out))
+    }
+
+    fn remaining_bytes(&self) -> Option<usize> {
+        Some(self.len())
     }
 
     type Rev = Rev<vec::IntoIter<u8>>;
@@ -324,6 +339,10 @@ impl ByteReader for &[u8] {
         Ok(u64::from_le_bytes([
             head[0], head[1], head[2], head[3], head[4], head[5], head[6], head[7],
         ]))
+    }
+
+    fn remaining_bytes(&self) -> Option<usize> {
+        Some(self.len())
     }
 
     type Rev = Rev<vec::IntoIter<u8>>;

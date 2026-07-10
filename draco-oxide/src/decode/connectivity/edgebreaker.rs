@@ -19,7 +19,7 @@ use crate::decode::entropy::rans::{self as rans_dec, RabsDecoder};
 use crate::prelude::ByteReader;
 use crate::shared::connectivity::edgebreaker::symbol_encoder::{CrLight, Symbol, SymbolEncoder};
 use crate::shared::connectivity::edgebreaker::{self, EdgebreakerKind, Orientation};
-use crate::utils::bit_coder::leb128_read;
+use crate::utils::bit_coder::{count_exceeds_remaining_input, leb128_read, max_admissible_count};
 
 use super::corner_table::DecoderCornerTable;
 use super::DecodedConnectivity;
@@ -51,6 +51,39 @@ pub enum Err {
     InvalidValenceSymbolId(u32),
     #[error("Valence context array exhausted (mesh asks for more symbols than encoded)")]
     ValenceContextExhausted,
+    #[error(
+        "Declared {what} count {declared} is disproportionate to the {remaining} remaining input \
+         byte(s) (max admissible {max}); refusing count-derived allocation (decompression bomb)"
+    )]
+    DeclaredCountTooLarge {
+        what: &'static str,
+        declared: usize,
+        remaining: usize,
+        max: usize,
+    },
+}
+
+/// Rejects a bitstream-declared element `count` that could not plausibly be
+/// produced by the `remaining` input bytes still available — the
+/// decompression-bomb guard for count-derived allocations
+/// (`CornerTable::with_capacity(num_faces*3)`, `read_symbols`' symbol vec,
+/// per-context valence arrays, …). Mirrors the `PREALLOC_CAP` discipline
+/// used for raw byte-buffer preallocs. Skipped when the reader can't report
+/// its remaining length (`remaining == None`).
+fn guard_declared_count(
+    declared: usize,
+    remaining: Option<usize>,
+    what: &'static str,
+) -> Result<(), Err> {
+    if count_exceeds_remaining_input(declared, remaining) {
+        return Err(Err::DeclaredCountTooLarge {
+            what,
+            declared,
+            remaining: remaining.unwrap_or(usize::MAX),
+            max: max_admissible_count(remaining).unwrap_or(usize::MAX),
+        });
+    }
+    Ok(())
 }
 
 /// Topology split events read from the bitstream.
@@ -101,6 +134,7 @@ pub(crate) fn decode<R: ByteReader>(reader: &mut R) -> Result<DecodedConnectivit
             let mut contexts: Vec<Vec<u32>> = Vec::with_capacity(6);
             for _ in 0..6 {
                 let n = leb128_read(reader)? as usize;
+                guard_declared_count(n, reader.remaining_bytes(), "valence_context_symbols")?;
                 let mut syms: Vec<u32> = Vec::with_capacity(n);
                 if n > 0 {
                     let raw = crate::decode::entropy::symbol_coding::decode_symbols(n, 1, reader)?;
@@ -302,10 +336,20 @@ fn symbol_id_to_topology(id: u32) -> Option<Symbol> {
 /// Reads metadata up to (but not including) the symbol stream.
 pub(crate) fn read_meta<R: ByteReader>(reader: &mut R) -> Result<EdgebreakerMeta, Err> {
     let traversal = EdgebreakerKind::read_from(reader)?;
+    // Bound each attacker-controlled count against the bytes still available
+    // before it drives a count-derived allocation downstream (corner table,
+    // symbol vecs). See `guard_declared_count`.
     let num_vertices = leb128_read(reader)? as usize;
+    guard_declared_count(num_vertices, reader.remaining_bytes(), "num_vertices")?;
     let num_faces = leb128_read(reader)? as usize;
+    guard_declared_count(num_faces, reader.remaining_bytes(), "num_faces")?;
     let num_attribute_data = reader.read_u8()?;
     let num_encoded_symbols = leb128_read(reader)? as usize;
+    guard_declared_count(
+        num_encoded_symbols,
+        reader.remaining_bytes(),
+        "num_encoded_symbols",
+    )?;
     let num_split_symbols = leb128_read(reader)? as usize;
     let topology_splits = read_topology_splits(reader)?;
 
@@ -322,6 +366,7 @@ pub(crate) fn read_meta<R: ByteReader>(reader: &mut R) -> Result<EdgebreakerMeta
 
 fn read_topology_splits<R: ByteReader>(reader: &mut R) -> Result<Vec<TopologySplit>, Err> {
     let count = leb128_read(reader)? as usize;
+    guard_declared_count(count, reader.remaining_bytes(), "topology_splits")?;
     let mut splits: Vec<TopologySplit> = Vec::with_capacity(count);
     let mut last_idx = 0usize;
     for _ in 0..count {
@@ -775,4 +820,68 @@ fn replay_symbols(
         ]);
     }
     Ok((faces, ct, start_corners, primary_offsets))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leb128(mut v: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            let b = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                out.push(b);
+                break;
+            }
+            out.push(b | 0x80);
+        }
+        out
+    }
+
+    /// Decompression-bomb guard: a crafted Edgebreaker header declaring a
+    /// `num_faces` far larger than the remaining input could ever encode must
+    /// be rejected with a decode error, NOT drive the count-derived
+    /// `CornerTable::with_capacity(num_faces * 3)` allocation. The header here
+    /// stops right after `num_faces`, so `remaining == 0` and the bound
+    /// (`(0 + 1) * 1024 = 1024`) is blown by the declared 1,000,000. The same
+    /// guard rejects the real-world `num_faces = 1e9` (~48 GB) attack four
+    /// orders of magnitude before allocation.
+    #[test]
+    fn decode_rejects_num_faces_decompression_bomb() {
+        let mut bytes = vec![0u8]; // EdgebreakerKind::Standard
+        bytes.extend(leb128(4)); // num_vertices (plausible)
+        bytes.extend(leb128(1_000_000)); // num_faces bomb; nothing follows
+
+        let mut reader = bytes.into_iter();
+        match decode(&mut reader) {
+            Err(Err::DeclaredCountTooLarge {
+                what: "num_faces", ..
+            }) => {}
+            Err(other) => panic!("expected DeclaredCountTooLarge for num_faces, got {other:?}"),
+            Ok(_) => panic!("bomb blob must be rejected, but decode succeeded"),
+        }
+    }
+
+    /// A header whose `num_faces` is proportionate to the (small) remaining
+    /// input must pass the bomb guard and fail later for an ordinary reason
+    /// (truncated stream), proving the guard doesn't reject legitimate ratios.
+    #[test]
+    fn decode_admits_proportionate_num_faces() {
+        let mut bytes = vec![0u8]; // Standard
+        bytes.extend(leb128(4)); // num_vertices
+        bytes.extend(leb128(2)); // num_faces — well within (remaining+1)*1024
+                                 // stream truncated here on purpose
+
+        let mut reader = bytes.into_iter();
+        match decode(&mut reader) {
+            Err(Err::DeclaredCountTooLarge { .. }) => {
+                panic!("proportionate count must NOT trip the bomb guard")
+            }
+            // Any other outcome (truncated-stream error, or success) is fine —
+            // we only assert the bomb guard did not fire.
+            _ => {}
+        }
+    }
 }
